@@ -1,0 +1,2478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Steve's Ottawa — Prototype</title>
+<style>
+  :root{
+    --ink:#1f2318;
+    --paper:#eee7d8;
+    --paper2:#e2d9c4;
+    --line:#8a8060;
+    --accent:#c1542c;
+    --accent2:#3f6b4f;
+    --gold:#b9922a;
+    --danger:#a3312a;
+    --card:#f6f1e4;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;padding:0;height:100%;
+    background:var(--ink);
+    font-family:'Courier New', Courier, monospace;
+    color:var(--ink);
+    overflow:hidden;
+  }
+  #app{
+    position:relative;
+    width:100%;height:100%;
+    display:flex;flex-direction:column;
+  }
+  /* Desktop / wide viewports: keep the app in a phone-proportioned frame rather than
+     stretching a mobile-designed HUD across a huge window. Mobile portrait/landscape
+     are untouched (this only kicks in once there's noticeably more width than a phone). */
+  @media (min-width:700px){
+    body{ display:flex; align-items:center; justify-content:center; }
+    #app{
+      width:420px; max-width:96vw; height:100%; max-height:900px;
+      box-shadow:0 0 40px rgba(0,0,0,0.6);
+      border-left:1px solid #000; border-right:1px solid #000;
+    }
+  }
+  /* Short landscape screens (phone rotated, or a short desktop window): trim the HUD
+     down a bit so it doesn't eat an oversized share of limited vertical space. */
+  @media (max-height:420px){
+    #hud{ padding:4px 10px; font-size:11px; }
+    .battery-shell{ width:26px; height:12px; }
+    #record-btn{ width:24px; height:24px; }
+  }
+
+  /* ---------- HUD ---------- */
+  #hud{
+    display:flex;justify-content:space-between;align-items:center;
+    background:var(--ink);
+    color:var(--paper);
+    padding:10px 14px;
+    font-size:14px;
+    letter-spacing:0.5px;
+    border-top:3px solid var(--gold);
+    z-index:10;
+    flex-shrink:0;
+  }
+  #hud .hud-block{display:flex;align-items:center;gap:6px;}
+  #hud .label{opacity:0.6;font-size:10px;text-transform:uppercase;}
+  #clock-value{font-weight:bold;font-size:16px;letter-spacing:1px;}
+  #clock-value.hidden-time{color:var(--danger);}
+  #clock-value.hidden-time::after{content:"— : —";}
+  #clock-value.hidden-time{font-size:0;}
+  #clock-value.hidden-time::after{font-size:16px;}
+  .battery-wrap{display:flex;align-items:center;gap:4px;}
+  .battery-shell{
+    width:34px;height:16px;border:2px solid var(--paper);border-radius:2px;
+    position:relative;padding:1px;
+  }
+  .battery-shell::after{
+    content:"";position:absolute;right:-5px;top:4px;width:3px;height:6px;background:var(--paper);
+  }
+  .battery-fill{height:100%;background:var(--accent2);transition:width .3s;}
+  .battery-fill.low{background:var(--gold);}
+  .battery-fill.dead{background:var(--danger);width:100% !important;opacity:0.3;}
+  #money-value{font-weight:bold;color:var(--gold);}
+
+  /* Record control: tap to record, tap-and-hold to reveal Intro/Outro menu */
+  #record-control{position:relative;display:flex;align-items:center;gap:6px;}
+  #record-btn{
+    width:30px;height:30px;border-radius:50%;
+    border:2px solid var(--paper);background:#2a2e21;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;padding:0;touch-action:none;
+  }
+  #rec-dot{width:12px;height:12px;border-radius:50%;background:#555;transition:background .15s;}
+  #record-btn.active #rec-dot{background:#2ecc40;box-shadow:0 0 6px rgba(46,204,64,0.8);}
+  #rec-label{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;opacity:.75;min-width:32px;}
+  #record-menu{
+    position:absolute;bottom:calc(100% + 10px);left:50%;transform:translateX(-50%);
+    display:none;flex-direction:column;gap:6px;
+    background:var(--card);border:2px solid var(--ink);border-radius:8px;
+    padding:6px;box-shadow:0 3px 0 rgba(0,0,0,0.25);z-index:20;
+  }
+  #record-menu.open{display:flex;}
+  .record-menu-item{
+    font-family:inherit;font-size:12px;padding:8px 16px;border-radius:5px;
+    border:2px solid var(--ink);background:var(--paper);color:var(--ink);
+    cursor:pointer;white-space:nowrap;touch-action:none;
+  }
+  .record-menu-item.selected{background:#2ecc40;border-color:#1a7a26;color:#0c2b0f;font-weight:bold;}
+
+  /* ---------- Views ---------- */
+  #view-container{flex:1;position:relative;overflow:hidden;background:var(--paper);}
+  .view{
+    position:absolute;inset:0;
+    display:none;
+    flex-direction:column;
+  }
+  .view.active{display:flex;}
+
+  /* Transit map view */
+  #transit-view .view-title{
+    padding:10px 14px 4px;font-size:12px;text-transform:uppercase;letter-spacing:1px;opacity:.7;
+  }
+  #transit-legend{
+    display:flex;gap:16px;padding:0 14px 6px;font-size:11px;color:var(--ink);opacity:.8;
+  }
+  .legend-item{display:flex;align-items:center;gap:6px;}
+  .legend-swatch{display:inline-block;width:22px;height:0;border-top:3px solid;}
+  .otrain-swatch{border-top-color:#c0392b;border-top-style:solid;}
+  .bus-swatch{border-top-color:#8a8060;border-top-style:dashed;}
+  #transit-canvas-wrap{flex:1;position:relative;}
+  #transit-canvas{width:100%;height:100%;display:block;}
+  .hub-btn{
+    position:absolute;transform:translate(-50%,-50%);
+    display:flex;flex-direction:column;align-items:center;gap:3px;
+    cursor:pointer;background:none;border:none;
+    color:var(--ink);font-family:inherit;
+  }
+  .hub-btn.label-above{flex-direction:column-reverse;}
+  .hub-btn .dot{
+    width:20px;height:20px;border-radius:50%;
+    background:var(--card);border:3px solid var(--line);
+    flex-shrink:0;
+  }
+  .hub-btn.current .dot{background:var(--accent);border-color:var(--ink);}
+  .hub-btn .dot-label{font-size:9px;font-weight:bold;background:var(--card);padding:1px 4px;border:1px solid var(--line);border-radius:3px;white-space:nowrap;line-height:1.4;}
+
+  /* Neighbourhood view */
+  #neighbourhood-view .view-title{
+    padding:10px 14px 4px;font-size:12px;text-transform:uppercase;letter-spacing:1px;opacity:.7;
+  }
+  #nbhd-canvas-wrap{flex:1;position:relative;padding:10px;}
+  .loc-btn{
+    position:absolute;transform:translate(-50%,-50%);
+    display:flex;flex-direction:column;align-items:center;gap:4px;
+    cursor:pointer;background:none;border:none;font-family:inherit;
+  }
+  .loc-icon{
+    width:44px;height:44px;border-radius:6px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:20px;color:var(--paper);
+    border:2px solid var(--ink);
+    box-shadow:2px 2px 0 rgba(0,0,0,0.15);
+  }
+  .loc-icon.home{background:#5b7a9a;}
+  .loc-icon.museum{background:#7a5b9a;}
+  .loc-icon.mall{background:#c1542c;}
+  .loc-icon.cafe{background:#8a5a3a;}
+  .loc-icon.landmark{background:#3f6b4f;}
+  .loc-icon.transit{background:#b9922a;}
+  .loc-icon.otrain{background:#2f6e8f;}
+  .loc-icon.greenhouse{background:#3f6b4f;}
+  .loc-icon.restaurant{background:#c1542c;}
+  .loc-label{font-size:10px;font-weight:bold;background:var(--card);padding:2px 5px;border:1px solid var(--line);border-radius:3px;white-space:nowrap;}
+  .loc-outlet-badge{
+    position:absolute;top:-4px;right:-4px;background:var(--gold);color:var(--ink);
+    font-size:9px;border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;
+    border:1px solid var(--ink);
+  }
+  #steve-sprite{
+    position:absolute;width:28px;height:28px;border-radius:50%;
+    background:var(--accent);border:3px solid var(--ink);
+    transform:translate(-50%,-50%);
+    display:flex;align-items:center;justify-content:center;
+    font-size:12px;color:var(--paper);font-weight:bold;
+    transition:left .4s, top .4s;
+    z-index:5;
+  }
+
+  /* Walkable grid-mode neighbourhood (RPG-style streets, free movement) */
+  #grid-mode-outer{
+    flex:1;display:none;position:relative;overflow:hidden;
+    background:#1f2318;touch-action:none;cursor:grab;
+  }
+  #grid-mode-outer:active{cursor:grabbing;}
+  #rain-overlay{
+    position:absolute;inset:0;pointer-events:none;z-index:8;opacity:0;
+    background-image:repeating-linear-gradient(
+      70deg,
+      rgba(200,215,230,0.35) 0px, rgba(200,215,230,0.35) 1px,
+      transparent 1px, transparent 14px
+    );
+    background-size:100% 140px;
+    animation:rain-fall 0.4s linear infinite;
+    transition:opacity 0.6s ease;
+  }
+  #rain-overlay.active{opacity:0.5;}
+  @keyframes rain-fall{
+    from{ background-position: 0 0; }
+    to{ background-position: -40px 140px; }
+  }
+  #grid-mode-wrap{
+    position:absolute;top:0;left:0;
+    display:grid;
+    /* grid-template set inline by JS based on TILE_PX/COLS/ROWS */
+    box-shadow:0 0 0 4px var(--ink) inset;
+  }
+  .gtile{width:100%;height:100%;position:relative;}
+  .gtile.road{background:#8f8873;}
+  .gtile.sidewalk{background:#d8d0b8;}
+  .gtile.building{background:#5b5240;}
+  .gtile.institutional{background:#7a7260;}
+  .gtile.grass{background:#5f8a5a;}
+  .gtile.hills{background:#4a7a4f;}
+  .gtile.trail{background:#a8875f;}
+  .gtile.water{background:#3a6b8a;}
+  .gtile.tracks{background:#2a2620;background-image:repeating-linear-gradient(0deg,#5a5040 0,#5a5040 2px,transparent 2px,transparent 8px);}
+  .gtile.sand{background:#d9c58a;}
+  .gtile.home,.gtile.farm-entry,.gtile.transit,.gtile.observatory,
+  .gtile.museum,.gtile.greenhouse,.gtile.arboretum,.gtile.gardens,.gtile.restaurant,.gtile.park,
+  .gtile.landmark,.gtile.mall,.gtile.cafe,.gtile.otrain-station{
+    background:#d8d0b8;display:flex;align-items:center;justify-content:center;font-size:14px;
+  }
+  .gtile.home::after{content:"🏠";}
+  .gtile.farm-entry{background:#5f8a5a;}
+  .gtile.farm-entry::after{content:"🌾";}
+  .gtile.transit::after{content:"🚏";}
+  .gtile.observatory{background:#3a4a63;}
+  .gtile.observatory::after{content:"🔭";}
+  .gtile.museum{background:#7a5b9a;}
+  .gtile.museum::after{content:"🏛";}
+  .gtile.greenhouse{background:#3f6b4f;}
+  .gtile.greenhouse::after{content:"🌿";}
+  .gtile.arboretum{background:#4a7a3f;}
+  .gtile.arboretum::after{content:"🌳";}
+  .gtile.gardens{background:#7a8a3f;}
+  .gtile.gardens::after{content:"🌷";}
+  .gtile.restaurant{background:#c1542c;}
+  .gtile.restaurant::after{content:"🍽";}
+  .gtile.park{background:#7fae5f;}
+  .gtile.park::after{content:"🪑";}
+  .gtile.yard-sale-marker{display:flex;align-items:center;justify-content:center;font-size:14px;}
+  .gtile.yard-sale-marker::after{content:"🏷";}
+  .gtile.landmark{background:#3f6b4f;}
+  .gtile.landmark::after{content:"📍";}
+  .gtile.mall{background:#c1542c;}
+  .gtile.mall::after{content:"🛍";}
+  .gtile.cafe{background:#8a5a3a;}
+  .gtile.cafe::after{content:"☕";}
+  .gtile.otrain-station{background:#2f6e8f;}
+  .gtile.otrain-station::after{content:"🚉";}
+  .gtile.otrain-station.maintenance{background:#5a4a2a;}
+  .gtile.otrain-station.maintenance::after{content:"🚧";}
+  #grid-steve-sprite{
+    position:absolute;width:22px;height:22px;
+    transform:translate(-50%,-50%);
+    display:flex;align-items:center;justify-content:center;
+    z-index:6;pointer-events:none;
+  }
+  #grid-steve-sprite .dot{
+    width:100%;height:100%;border-radius:50%;
+    background:var(--accent);border:2px solid var(--ink);
+  }
+  #bus-sprite, #train-sprite{
+    position:absolute;width:24px;height:24px;
+    transform:translate(-50%,-50%);
+    display:none;align-items:center;justify-content:center;
+    font-size:18px;z-index:5;pointer-events:none;
+  }
+  #game-over-overlay{
+    position:absolute;inset:0;background:rgba(20,10,10,0.95);
+    display:none;flex-direction:column;align-items:center;justify-content:center;
+    color:var(--paper);z-index:40;gap:12px;text-align:center;padding:30px;
+  }
+  #game-over-overlay.active{display:flex;}
+  #game-over-emoji{font-size:48px;}
+  #game-over-headline{font-size:20px;font-weight:bold;color:var(--danger);}
+  #game-over-body{font-size:13px;opacity:.85;max-width:320px;line-height:1.6;}
+  #game-over-restart-btn{
+    margin-top:10px;font-family:inherit;font-size:14px;padding:10px 22px;
+    border-radius:6px;border:2px solid var(--paper);background:var(--accent2);color:var(--paper);
+    cursor:pointer;
+  }
+  #rain-indicator{display:none;margin-left:4px;font-size:12px;}
+  #rain-indicator.active{display:inline;}
+  #grid-hint{
+    position:absolute;top:8px;left:50%;transform:translateX(-50%);
+    background:rgba(31,35,24,0.8);color:var(--paper);font-size:10px;
+    padding:4px 10px;border-radius:10px;z-index:9;pointer-events:none;
+  }
+  .street-label{
+    position:absolute;white-space:nowrap;pointer-events:none;z-index:3;
+    font-size:9px;letter-spacing:0.5px;color:#e8e0c8;
+    background:rgba(31,35,24,0.55);padding:1px 5px;border-radius:3px;
+    transform:translate(-50%,-50%);
+  }
+  .street-label.vertical{transform:translate(-50%,-50%) rotate(-90deg);}
+
+  /* Travel overlay */
+  #travel-overlay{
+    position:absolute;inset:0;background:rgba(31,35,24,0.92);
+    display:none;flex-direction:column;align-items:center;justify-content:center;
+    color:var(--paper);z-index:20;gap:14px;text-align:center;padding:20px;
+  }
+  #travel-overlay.active{display:flex;}
+  #travel-bar-shell{width:70%;max-width:320px;height:10px;background:#3a3f2e;border-radius:6px;overflow:hidden;}
+  #travel-bar-fill{height:100%;width:0%;background:var(--gold);}
+  #travel-eta{font-size:12px;opacity:.75;}
+  #skip-travel-btn{
+    margin-top:8px;background:none;border:1px solid var(--paper);color:var(--paper);
+    padding:6px 14px;border-radius:4px;font-family:inherit;cursor:pointer;font-size:12px;
+  }
+
+  /* Location action panel */
+  #action-panel{
+    position:absolute;left:0;right:0;bottom:0;
+    background:var(--card);border-top:3px solid var(--ink);
+    padding:14px;display:none;flex-direction:column;gap:8px;
+    max-height:60%;overflow-y:auto;z-index:15;
+  }
+  #action-panel.active{display:flex;}
+  #action-panel h3{margin:0 0 4px;font-size:15px;}
+  #action-panel .sub{font-size:11px;opacity:.65;margin-bottom:6px;}
+  .action-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .btn{
+    font-family:inherit;font-size:12px;padding:9px 12px;border-radius:5px;
+    border:2px solid var(--ink);background:var(--paper);cursor:pointer;
+    display:flex;align-items:center;gap:6px;
+  }
+  .btn.primary{background:var(--accent2);color:var(--paper);}
+  .btn.gold{background:var(--gold);}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .btn.close-btn{margin-left:auto;background:none;border:none;font-size:16px;padding:4px 8px;}
+  #action-log{font-size:11px;opacity:.7;min-height:14px;}
+
+  /* Toast */
+  #toast{
+    position:absolute;top:60px;left:50%;transform:translateX(-50%);
+    background:var(--ink);color:var(--paper);padding:8px 16px;border-radius:5px;
+    font-size:12px;z-index:30;opacity:0;pointer-events:none;transition:opacity .3s;
+    border:1px solid var(--gold);
+  }
+  #toast.show{opacity:1;}
+
+  svg.route-line{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="view-container">
+
+    <!-- TRANSIT MAP VIEW -->
+    <div id="transit-view" class="view active">
+      <div class="view-title">Transit Map — tap a neighbourhood to travel</div>
+      <div id="transit-legend">
+        <span class="legend-item"><span class="legend-swatch otrain-swatch"></span>O-Train</span>
+        <span class="legend-item"><span class="legend-swatch bus-swatch"></span>Bus</span>
+      </div>
+      <div id="transit-canvas-wrap">
+        <svg class="route-line" id="route-svg"></svg>
+        <!-- hub buttons injected by JS -->
+      </div>
+    </div>
+
+    <!-- NEIGHBOURHOOD VIEW -->
+    <div id="neighbourhood-view" class="view">
+      <div class="view-title" id="nbhd-title">Neighbourhood</div>
+      <div id="nbhd-canvas-wrap">
+        <div id="steve-sprite">S</div>
+        <!-- location buttons injected by JS (icon mode, used by hubs not yet upgraded to walkable streets) -->
+      </div>
+      <div id="grid-mode-outer">
+        <div id="rain-overlay"></div>
+        <div id="grid-mode-wrap">
+          <div id="grid-steve-sprite"><div class="dot"></div></div>
+          <div id="bus-sprite">🚌</div>
+          <div id="train-sprite">🚈</div>
+          <!-- street tiles injected by JS (walkable mode) -->
+        </div>
+        <div id="grid-hint">Hold &amp; drag to walk</div>
+      </div>
+    </div>
+
+    <!-- TRAVEL OVERLAY -->
+    <div id="travel-overlay">
+      <div id="travel-headline">Traveling…</div>
+      <div id="travel-bar-shell"><div id="travel-bar-fill"></div></div>
+      <div id="travel-eta">0 of 0 min</div>
+      <button id="skip-travel-btn">Skip &raquo;</button>
+    </div>
+
+    <div id="game-over-overlay">
+      <div id="game-over-emoji">🚑</div>
+      <div id="game-over-headline">Struck by a bus.</div>
+      <div id="game-over-body">Steve wandered onto the road and didn't see it coming. He's been taken to Queensway Carleton Hospital.<br><br>Feel better soon, Steve.</div>
+      <button id="game-over-restart-btn">Restart</button>
+    </div>
+
+    <!-- ACTION PANEL -->
+    <div id="action-panel">
+      <div class="action-row">
+        <h3 id="action-title">Location</h3>
+        <button class="btn close-btn" id="close-action-btn">✕</button>
+      </div>
+      <div class="sub" id="action-sub"></div>
+      <div class="action-row" id="action-buttons"></div>
+      <div id="action-log"></div>
+    </div>
+
+  </div>
+
+  <div id="hud">
+    <div class="hud-block">
+      <span class="label">TIME</span>
+      <span id="clock-value">7:00 AM</span>
+      <span id="rain-indicator" title="Raining">🌧️</span>
+    </div>
+    <div class="hud-block battery-wrap">
+      <span class="label">BATT</span>
+      <div class="battery-shell"><div id="battery-fill" class="battery-fill" style="width:100%"></div></div>
+      <span id="battery-pct" style="font-size:11px;">100%</span>
+    </div>
+    <div class="hud-block">
+      <span class="label">$</span>
+      <span id="money-value">60</span>
+    </div>
+    <div class="hud-block" id="record-control">
+      <div id="record-menu">
+        <button class="record-menu-item" data-mode="intro">Intro</button>
+        <button class="record-menu-item" data-mode="outro">Outro</button>
+      </div>
+      <button id="record-btn">
+        <span id="rec-dot"></span>
+      </button>
+      <span id="rec-label">idle</span>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<script>
+/* =========================================================
+   STEVE'S OTTAWA — PROTOTYPE
+   Placeholder-sprite build. All visuals here (colored dots,
+   emoji icons) are stand-ins. See steve_sprite_sheet_template.png
+   for the grid to draw real sprites into — cell coordinates
+   are referenced in the SPRITE_MAP comment at the bottom.
+   ========================================================= */
+
+// ---------- TIME CONFIG ----------
+// 1 real hour of normal play = 13 game hours (10x base rate, sped up 30% per playtest feedback
+// that a 90+ minute session felt too long) -> 1 game-minute passes roughly every 4.6 real seconds.
+// Target: a full 16-hour waking day (7am-11pm) takes about 40 real minutes to play through.
+// That's 960 game-minutes in 2400 real seconds -> 2.5 real seconds per game-minute,
+// i.e. roughly 2.4x the original 10x rate (1 real hour = 24 game hours).
+const TIME_SPEED_MULTIPLIER = 2.4;
+const REAL_SEC_PER_GAME_MIN = 6 / TIME_SPEED_MULTIPLIER;
+const GAME_MIN_PER_REAL_SEC = 1 / REAL_SEC_PER_GAME_MIN;
+const DAY_START_MIN = 7 * 60;   // 7:00 AM
+const DAY_END_MIN   = 23 * 60;  // 11:00 PM curfew (design TBD, placeholder)
+
+// ---------- BATTERY CONFIG ----------
+const BATTERY_DRAIN_PER_GAME_MIN = 100 / (10 * 60); // battery lasts ~10 game-hours of normal drain
+const RECORD_DRAIN_MULTIPLIER = 2.2; // recording drains faster than idle
+const CHARGER_PRICE = 35;
+const CHARGER_USES_MAX = 5;
+
+// ---------- WORLD DATA ----------
+// Hub layout is stylised, not geographically exact.
+const hubs = [
+  { id:"carlington", name:"Carlington / Exp. Farm", mapLabel:"Carlington", x:0.04, y:0.66, labelSide:"below" },
+  { id:"bayshore",   name:"Bayshore / Britannia", mapLabel:"Bayshore", x:0.00, y:0.38, labelSide:"above" },
+  { id:"westboro",   name:"Westboro / Hintonburg", mapLabel:"Westboro", x:0.06, y:0.16, labelSide:"above" },
+  { id:"southkeys",  name:"South Keys / Billings Bridge", mapLabel:"South Keys", x:0.28, y:0.82, labelSide:"below" },
+  { id:"glebe",      name:"The Glebe / Lansdowne", mapLabel:"The Glebe", x:0.36, y:0.50, labelSide:"below" },
+  { id:"littleitaly",name:"Little Italy", mapLabel:"Little Italy", x:0.14, y:0.38, labelSide:"below" },
+  { id:"chinatown",  name:"Chinatown", mapLabel:"Chinatown", x:0.22, y:0.28, labelSide:"below" },
+  { id:"downtown",   name:"Downtown / ByWard Market / Centretown", mapLabel:"Downtown", x:0.32, y:0.26, labelSide:"above" },
+  { id:"lowertown",  name:"Lowertown", mapLabel:"Lowertown", x:0.46, y:0.14, labelSide:"above" },
+  { id:"sandyhill",  name:"Sandy Hill", mapLabel:"Sandy Hill", x:0.60, y:0.22, labelSide:"below" },
+  { id:"vanier",     name:"Vanier", mapLabel:"Vanier", x:0.82, y:0.16, labelSide:"above" },
+  { id:"oldottawa",  name:"Old Ottawa South / Old Ottawa East", mapLabel:"Old Ottawa S/E", x:0.36, y:0.66, labelSide:"above" },
+  { id:"huntclub",   name:"Hunt Club", mapLabel:"Hunt Club", x:0.16, y:0.94, labelSide:"below" },
+  { id:"lebreton",   name:"LeBreton Flats", mapLabel:"LeBreton Flats", x:0.16, y:0.14, labelSide:"below" },
+  { id:"newedin",    name:"New Edinburgh / Rockcliffe", mapLabel:"New Edinburgh", x:0.68, y:0.06, labelSide:"below" },
+  { id:"gatineau",   name:"Gatineau (Museum of History)", mapLabel:"Gatineau", x:0.50, y:0.02, labelSide:"below" },
+  { id:"eastend",    name:"East End / Aviation Museum", mapLabel:"East End", x:1.00, y:0.16, labelSide:"below" },
+  { id:"stlaurent",  name:"St. Laurent / Riverview", mapLabel:"St. Laurent", x:0.92, y:0.30, labelSide:"above" },
+];
+
+// Simplified "most common route" edges with EXACT placeholder minute costs.
+// Replace these numbers with real OC Transpo route data later.
+const routes = [
+  ["carlington","glebe",15],
+  ["carlington","southkeys",18],
+  ["carlington","westboro",10],
+  ["carlington","bayshore",12],
+  ["bayshore","westboro",8],
+  ["westboro","lebreton",8],
+  ["westboro","littleitaly",12],
+  ["littleitaly","chinatown",5],
+  ["littleitaly","glebe",10],
+  ["chinatown","lebreton",6],
+  ["chinatown","downtown",8],
+  ["glebe","downtown",12],
+  ["glebe","southkeys",12],
+  ["downtown","lebreton",8],
+  ["downtown","newedin",15],
+  ["downtown","sandyhill",8],
+  ["downtown","lowertown",5],
+  ["lowertown","sandyhill",6],
+  ["sandyhill","newedin",10],
+  ["sandyhill","vanier",8],
+  ["vanier","newedin",10],
+  ["vanier","stlaurent",12],
+  ["glebe","oldottawa",10],
+  ["oldottawa","southkeys",12],
+  ["southkeys","huntclub",10],
+  ["downtown","gatineau",10],
+  ["downtown","eastend",30],
+  ["newedin","gatineau",8],
+  ["newedin","eastend",20],
+  ["downtown","stlaurent",18],
+  ["newedin","stlaurent",10],
+  ["stlaurent","eastend",12],
+];
+
+// O-Train edges — only between hubs that really share a line, generally faster than
+// the equivalent bus route. Confederation Line: Westboro - Pimisi(LeBreton) - Parliament/Rideau(Downtown).
+// Trillium Line: Corso Italia(Little Italy) - South Keys.
+const otrainRoutes = [
+  ["westboro","lebreton",5],
+  ["lebreton","downtown",4],
+  ["littleitaly","southkeys",14],
+  ["bayshore","westboro",6],
+];
+
+// ---------- WALKABLE GRID DATA (proof-of-concept: Carlington only) ----------
+// Hand-approximated street layout, not exact geodata, but reflects real relative
+// positions where known (e.g. Arboretum/Ornamental Gardens near each other on the
+// east side of the Farm, Museum/Greenhouse grouped centrally per the real walking tour).
+// Legend:
+// '#' = wall/edge (blocked)        'H' = house mass (blocked, residential)
+// 'B' = institutional/business building mass (blocked)   'g' = farm greenery mass (blocked)
+// 'r' = road/street (walkable)     's' = sidewalk (walkable, flanks every street on both sides)
+// 'S' = Steve's House               'F' = Farm main entrance
+// 'O' = Dominion Observatory        'M' = Food & Agriculture Museum
+// 'G' = Tropical Greenhouse         'A' = Dominion Arboretum
+// 'N' = Ornamental Gardens          'J' = Jamaican takeout restaurant
+// 'T' = transit stop (exits to transit map)
+const NEIGHBOURHOOD_GRIDS = {
+  bayshore: {
+    cols: 38, rows: 26,
+    streetLabels: [{ name:"Bayshore Drive", col:4, row:15, vertical:true }],
+    busRoute: { col: 4, stopRow: 8, waterNorth: true, exitSide: "left", bendRow: 9 },
+    trainRoute: { col: 26, stationRow: 12, waterNorth: true, exitSide: "right", bendRow: 9 },
+    trackUnderlay: { "26,21": "s", "26,24": "s", "37,9": "s", "28,9": "r", "30,9": "r", "32,9": "r", "26,11": "s", "26,14": "s", "26,20": "s", "26,17": "s", "26,23": "s", "34,9": "r", "36,9": "r", "27,9": "r", "26,13": "s", "26,10": "s", "26,16": "s", "29,9": "r", "26,19": "s", "31,9": "r", "26,22": "s", "33,9": "r", "35,9": "r", "26,9": "s", "26,12": "s", "26,18": "s", "26,15": "s" },
+    tileClass: { "K": "mall", "L": "landmark" },
+    tileToLocation: { "K": "bayshore-mall", "L": "britannia-beach" },
+    stopChars: ["T", "X"],
+    grid: [
+      "######################################",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwwwHHsrsHHwwwwwwwwwwwwwwHsrsHHHwww#",
+      "#wwsrsHHsrsHHsrsHwwwwwwwrssHsrsHHHHHH#",
+      "#dddrdddddddddrddddrdddLdddddrddddddd#",
+      "#HHsrsHHssBBBsrsHHsrssBBBssHsrsHHHHHH#",
+      "#HHsrsHHssBBBsrsHHsrssBBBssHsrsHHHHHH#",
+      "#sssrTssssBBBsrssssrsssssssssrsssssss#",
+      "#rrrrrrrrssKssrrrrrrrrrrrrkkkkkkkkkkkk",
+      "#sssrssssrssssrssssrssssrskssrsssssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrskHsrsHHHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrXkHsrsHHHHHH#",
+      "#sssrssssrssssrssssrssssrskssrsssssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrkrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrskssrsssssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrskHsrsHHHHHH#",
+      "#sssrssssrssssrssssrssssrskssrsssssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrkrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrskssrsssssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrskHsrsHHHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrskHsrsHHHHHH#",
+      "#sssrssssrssssrssssrssssrskssrsssssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrkrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrskssrsssssss#",
+      "######################################",
+    ],
+  },
+  sandyhill: {
+    cols: 40, rows: 28,
+    streetLabels: [{ name:"Laurier Avenue East", col:4, row:15, vertical:true }],
+    busRoute: { col: 4, stopRow: 8 },
+    tileClass: { "U": "landmark", "K": "landmark", "L": "landmark", "M": "landmark" },
+    tileToLocation: { "U": "uottawa", "K": "strathcona-park", "L": "laurier-house", "M": "macdonald-gardens-park" },
+    stopChars: ["T"],
+    grid: [
+      "########################################",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrsssssssssrssssrsssssssssrssssrssss#",
+      "#HHsrsHHssBBBsrsHHsrssBBBsHHsrsHHsrsHHH#",
+      "#HHsrsHHssBBBsrsHHsrssBBBsHHsrsHHsrsHHH#",
+      "#sssrTssssBBBsrssssrsssKsssssrssssrssss#",
+      "#rrrrrrrrssUssrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#rrrrrrrrssssrrrrrrrrssssrrrrrrrrrrrrrr#",
+      "#sssrsssssBBssrssssrssBBsssssrssssrssss#",
+      "#HHsrsHHssBBssrsHHsrssBBssHHsrsHHsrsHHH#",
+      "#sssrssssssMssrssssrsssLsssssrssssrssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "########################################",
+    ],
+  },
+  vanier: {
+    cols: 36, rows: 26,
+    streetLabels: [{ name:"Montreal Road", col:4, row:13, vertical:true }],
+    busRoute: { col: 4, stopRow: 8 },
+    tileClass: { "V": "landmark", "G": "landmark" },
+    tileToLocation: { "V": "vanier-museopark", "G": "notre-dame-grotto" },
+    stopChars: ["T"],
+    grid: [
+      "####################################",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#sssrssssrssssrssssrssssrssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrsssssssssrssssrssssrssssrsssss#",
+      "#HHsrsHHssBBBsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHssBBBsrsHHsrsHHsrsHHsrsHHHH#",
+      "#sssrTsssssVssrssssrssssrssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrsssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHssssssrsHHsrsHHHH#",
+      "#sssrssssrssssrsssssBBssrssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrsBBsrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssssGssrssssrsssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#sssrssssrssssrssssrssssrssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrsssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "####################################",
+    ],
+  },
+  oldottawa: {
+    cols: 40, rows: 28,
+    streetLabels: [{ name:"Bank Street", col:4, row:15, vertical:true }],
+    busRoute: { col: 4, stopRow: 8 },
+    tileClass: { "C": "landmark", "M": "landmark", "F": "landmark", "P": "landmark" },
+    tileToLocation: { "C": "carleton-university", "M": "mayfair-theatre", "F": "flora-footbridge", "P": "saint-paul-university" },
+    stopChars: ["T"],
+    grid: [
+      "########################################",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrsssssssssrssssrsssssssssrssssrssss#",
+      "#HHsrsHHssBBBsrsHHsrsHHssBBssrsHHsrsHHH#",
+      "#HHsrsHHssBBBsrsHHsrsHHssBBssrsHHsrsHHH#",
+      "#sssrTssssBBBsrssssrssssssMssrssssrssss#",
+      "#rrrrrrrrssCssrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#rrrrrrrrssssrrrrrrrrrrrssssrrrrrrrrrrr#",
+      "#sssrsssssBBssrssssrsssssBBssrssssrssss#",
+      "#HHsrsHHssBBssrsHHsrsHHssBBssrsHHsrsHHH#",
+      "#sssrssssssPssrssssrssssssFssrssssrssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "########################################",
+    ],
+  },
+  huntclub: {
+    cols: 32, rows: 22,
+    streetLabels: [{ name:"Hunt Club Road", col:4, row:12, vertical:true }],
+    busRoute: { col: 4, stopRow: 8 },
+    tileClass: { "H": "landmark" },
+    tileToLocation: { "H": "ottawa-hunt-golf-club" },
+    stopChars: ["T"],
+    grid: [
+      "################################",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "#sssrssssrssssrssssrssssrssssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrssssssHHsrsHHsrsHHHHH#",
+      "#sssrTsssrssBBBssssrssssrssssss#",
+      "#rrrrrrrrrrsBBBsrrrrrrrrrrrrrrr#",
+      "#sssrssssrssBBBssssrssssrssssss#",
+      "#HHsrsHHsrsssHssHHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "#sssrssssrssssrssssrssssrssssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "################################",
+    ],
+  },
+  lowertown: {
+    cols: 36, rows: 26,
+    streetLabels: [{ name:"King Edward Avenue", col:4, row:13, vertical:true }],
+    busRoute: { col: 4, stopRow: 8 },
+    tileClass: { "N": "landmark", "S": "landmark" },
+    tileToLocation: { "N": "notre-dame-cathedral", "S": "st-brigids-church" },
+    stopChars: ["T"],
+    grid: [
+      "####################################",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#sssrssssrssssrssssrssssrssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrsssssssssrssssrssssrssssrsssss#",
+      "#HHsrsHHssBBBsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHssBBBsrsHHsrsHHsrsHHsrsHHHH#",
+      "#sssrTssssBBBsrssssrssssrssssrsssss#",
+      "#rrrrrrrrssNssrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrsssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHssssssrsHHsrsHHHH#",
+      "#sssrssssrssssrsssssBBssrssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrsBBsrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssssSssrssssrsssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#sssrssssrssssrssssrssssrssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrsssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "####################################",
+    ],
+  },
+  carlington: {
+    cols: 66, rows: 46,
+    streetLabels: [{ name:"Merivale Road", col:18, row:28, vertical:true }],
+    busRoute: { col: 18, stopRow: 21 },
+    tileClass: { "S": "home", "F": "farm-entry", "O": "observatory", "M": "museum", "G": "greenhouse", "A": "arboretum", "N": "gardens", "J": "restaurant", "P": "park" },
+    tileToLocation: { "S": "steve-house", "F": "exp-farm", "O": "dominion-observatory", "M": "food-ag-museum", "G": "tropical-greenhouse", "A": "dominion-arboretum", "N": "ornamental-gardens", "J": "jamaican-takeout", "P": "neighbourhood-park" },
+    stopChars: ["T"],
+    grid: [
+      "##################################################################",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#ggggsrsgggggsrsggggggg#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#ggggsrsgggggsrsggggggg#",
+      "#sssrssssssrssssssrssssssrssssssrssssssrss#sssssrsssssssrssssssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrssssrrrrrrrrrrrrrrrr#",
+      "#sssrssssssrssssssrssssssrssssssrssssssrss#sssBBssssssssrssssssss#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#ggsBBssggggsssssgggggg#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#ggssGssggggsBBBsgggggg#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#sssssrssssssBBBsssssss#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#rrrrrrrrrrrssOssrrrrrr#",
+      "#sssrssssssrssssssrssssssrssssssrssssssrss#sssssrsssssssrssssssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrggsssssgggggsrsggggggg#",
+      "#sssrssssssrssssssrssssssrssssssrssssssrss#ggsBBBsgggggsrsggggggg#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#sssBBBsssssssrssssssss#",
+      "#HHsrsHHHHsrsHHHHsrssssHsrsHHHHsrsHHHHsrsH#rrssMssrrrrrrrrrrrrrrr#",
+      "#HHsrsHHHHsrsHHHHsrsBBsHsrsHHHHsrsHHHHsrsH#sssssrsssssssrssssssss#",
+      "#HHsrsHHHHsrsHHHHsrsBBsHsrsHHHHsrsHHHHsrsH#ggggsrsgggggsrsggggggg#",
+      "#sssrssssssrssssssrssSsssrssssssrssssssrss#sssssrsssssssrssssssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrFrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssssrssssssrssssssrssssssrssssssrss#sssssrsssssssrssssssss#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#ggggsrsgggggsrsggggggg#",
+      "#HHsrsHHHHsrssssHsrTHHHHsrsHHHHsrsHHHHsrsH#ggggsrsgggggsrsggggggg#",
+      "#HHsrsHHHHsrsBBsHsrsHHHHsrsHHHHsrsHHHHsrsH#sssssrsssssssrssssssss#",
+      "#HHsrsHHHHsrsBBsHsrsHHHHsrsHHHHsrsHHHHsrsH#rrrrrrrrrrrssAssrrrrrr#",
+      "#sssrssssssrssJsssrssssssrssssssrssssssrss#sssssrssssssBBBsssssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrggggsrsggggsBBBsgggggg#",
+      "#sssrssssssrssssssrssssssrssssssrssssssrss#ggggsrsggggsBBBsgggggg#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#sssssrssssssssssssssss#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrssssHsrsHHHHsrsH#rrrrrrrrrrrrrrrrrrrrrr#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsggsHsrsHHHHsrsH#sssssNsssssssrssssssss#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsggsHsrsHHHHsrsH#gggsBBBsggggsrsggggggg#",
+      "#sssrssssssrssssssrssssssrssPsssrssssssrss#gggsBBBsggggsrsggggggg#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrsssssssssssssrssssssss#",
+      "#sssrssssssrssssssrssssssrssssssrssssssrss#rrrrrrrrrrrrrrrrrrrrrr#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#sssssrsssssssrssssssss#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#ggggsrsgggggsrsggggggg#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#ggggsrsgggggsrsggggggg#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#sssssrsssssssrssssssss#",
+      "#sssrssssssrssssssrssssssrssssssrssssssrss#rrrrrrrrrrrrrrrrrrrrrr#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrsssssrsssssssrssssssss#",
+      "#sssrssssssrssssssrssssssrssssssrssssssrss#ggggsrsgggggsrsggggggg#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#sssssrsssssssrssssssss#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#rrrrrrrrrrrrrrrrrrrrrr#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#sssssrsssssssrssssssss#",
+      "#HHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsHHHHsrsH#ggggsrsgggggsrsggggggg#",
+      "##################################################################",
+    ],
+  },
+  southkeys: {
+    cols: 40, rows: 28,
+    streetLabels: [{ name:"Bank Street", col:4, row:15, vertical:true }, { name:"Riverside Drive", col:15, row:9, vertical:false }],
+    busRoute: { col: 4, stopRow: 8, waterSouth: true, exitSide: "left", bendRow: 18 },
+    trainRoute: { col: 35, stationRow: 8, waterSouth: true, exitSide: "right", bendRow: 18 },
+    trackUnderlay: { "39,18": "s", "37,18": "r", "35,2": "s", "35,5": "s", "35,11": "s", "35,8": "s", "35,14": "s", "35,17": "s", "36,18": "r", "35,4": "s", "35,1": "s", "35,7": "s", "35,13": "s", "35,10": "s", "35,16": "s", "38,18": "r", "35,6": "s", "35,3": "s", "35,9": "s", "35,12": "s", "35,18": "s", "35,15": "s" },
+    tileClass: { "M": "museum", "K": "mall", "Z": "landmark", "Q": "landmark", "W": "mall", "V": "landmark" },
+    tileToLocation: { "M": "billings-estate", "K": "billings-mall", "Z": "hogs-back-falls", "Q": "mooneys-bay-park", "W": "southkeys-mall", "V": "vincent-massey-park" },
+    stopChars: ["T", "X"],
+    grid: [
+      "########################################",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrkHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrkHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrksss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrkrrr#",
+      "#sssrsssssssssrssssrsssssssssrsssssksss#",
+      "#HHsrsHHssBBBsrsBBsrssBBBsHHsrssBBskHHH#",
+      "#HHsrsHHssBBBsrsBBsrssBBBsHHsrssBBskHHH#",
+      "#sssrTsssssMssrssVsrssBBBssssrsssWXksss#",
+      "#rrrrrrrrrrrrrrrrrrrrssKssrrrrrrrrrkrrr#",
+      "#sssrssssrssssrssssrssssrssssrssssrksss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrkHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrkHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrksss#",
+      "#rrrrrrssssrrrrrrssssrrrrrrrrrrrrrrkrrr#",
+      "#sssrsssBBssssrsssBBssssrssssrssssrksss#",
+      "#HHsrsHsBBsHHsrsHsBBsHHsrsHHsrsHHsrkHHH#",
+      "#sssrssssZssssrssssQssssrssssrssssrksss#",
+      "rrrrrsssssssssssssssssssssssssssssskkkkk",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#dddrddddrddddrddddrddddrddddrddddrdddd#",
+      "#wwsrsHHsrsHHsrsHwwwwwwwrsHHsrsHHsrsHww#",
+      "#wwwwwHHsrsHHwwwwwwwwwwwwwwHsrsHHswwwww#",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "########################################",
+    ],
+  },
+  glebe: {
+    cols: 36, rows: 26,
+    streetLabels: [{ name:"Bank Street", col:4, row:15, vertical:true }],
+    busRoute: { col: 4, stopRow: 8 },
+    tileClass: { "L": "landmark", "C": "cafe", "W": "landmark", "S": "landmark" },
+    tileToLocation: { "L": "lansdowne", "C": "glebe-cafe", "W": "dows-lake", "S": "bank-street-sculptures" },
+    stopChars: ["T"],
+    grid: [
+      "####################################",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrwwwww#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrwwwww#",
+      "#sssrssssrssssrssssrssssrssssrswwww#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrwwww#",
+      "#sssrsssssssssrssssrssssrssssrsswww#",
+      "#HHsrsBBssBBBsrsBBsrsHHsrsHHsrsHwww#",
+      "#HHsrsBBssBBBsrsBBsrsHHsrsHHsrsHHww#",
+      "#sssrTsWsssLssrssSsrssssrssssrsssww#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrww#",
+      "#sssrssssrssssrssssrssssrssssrsssww#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHww#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#sssrssssrssssrssssrssssrssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrssssrrrrrrrrrrrr#",
+      "#sssrssssrssssrsssssBBssrssssrsssss#",
+      "#HHsrsHHsrsHHsrsHHssBBssrsHHsrsHHHH#",
+      "#sssrssssrssssrssssssCssrssssrwwwww#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrwwwwww#",
+      "#sssrssssrssssrssssrssssrsssswwwwww#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHswwwwww#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHswwwwww#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrwwwww#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrwwwww#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrswwww#",
+      "####################################",
+    ],
+  },
+  westboro: {
+    cols: 38, rows: 26,
+    streetLabels: [{ name:"Richmond Road", col:4, row:15, vertical:true }],
+    busRoute: { col: 4, stopRow: 11, waterNorth: true, exitSide: "left", bendRow: 9 },
+    trainRoute: { col: 32, stationRow: 11, waterNorth: true, exitSide: "right", bendRow: 9 },
+    trackUnderlay: { "37,9": "s", "32,9": "s", "32,12": "s", "32,18": "s", "32,15": "s", "32,21": "s", "32,24": "s", "34,9": "r", "36,9": "r", "32,11": "s", "32,14": "s", "32,20": "s", "32,17": "s", "32,23": "s", "33,9": "r", "32,13": "s", "32,10": "s", "32,16": "s", "35,9": "r", "32,19": "s", "32,22": "s" },
+    tileClass: { "L": "landmark", "C": "cafe", "R": "landmark", "W": "mall" },
+    tileToLocation: { "L": "westboro-beach", "C": "hintonburg-cafe", "R": "remic-rapids-park", "W": "carlingwood-mall" },
+    stopChars: ["T", "X"],
+    grid: [
+      "######################################",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwwwwwwwwwwsrsHHsrwwwwwwwwwwwwwwrsH#",
+      "#HwwwwwwwrsHHsrsHHsrsHHwwwwwwwsHssrsH#",
+      "#dddrddddddLddrddddrdddRdddddrddddrdd#",
+      "#HHsrsHHssBBBsrsHHsrssBBssHHsrsHssrsH#",
+      "#HHsrsHHssBBBsrsHHsrssBBssHHsrsHssrsH#",
+      "#sssrsssssssssrssssrsssssssssrssssrss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrkkkkkk",
+      "#sssrssssrssssrssssrssssrssssrssksrss#",
+      "#HHsrTHHsrsBBsrsHHsrsHHsrsHHsrsXksrsH#",
+      "#HHsrsHHsrsBBsrsHHsrsHHsrsHHsrsHksrsH#",
+      "#sssrssssrssWsrssssrssssrssssrssksrss#",
+      "#rrrrrrrrrrrrrrrrrrrrssssrrrrrrrkrrrr#",
+      "#sssrssssrssssrssssrssBBsssssrssksrss#",
+      "#HHsrsHHsrsHHsrsHHsrssBBssHHsrsHksrsH#",
+      "#sssrssssrssssrssssrsssCsssssrssksrss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrkrrrr#",
+      "#sssrssssrssssrssssrssssrssssrssksrss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHksrsH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHksrsH#",
+      "#sssrssssrssssrssssrssssrssssrssksrss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrkrrrr#",
+      "#sssrssssrssssrssssrssssrssssrssksrss#",
+      "######################################",
+    ],
+  },
+  littleitaly: {
+    cols: 36, rows: 26,
+    streetLabels: [{ name:"Preston Street", col:4, row:15, vertical:true }],
+    busRoute: { col: 4, stopRow: 8 },
+    trainRoute: { col: 24, stationRow: 8 },
+    trackUnderlay: { "24,6": "r", "24,7": "r", "24,8": "s", "24,9": "r", "24,10": "s", "24,11": "r", "24,12": "r", "24,13": "s", "24,14": "r", "24,15": "s", "24,16": "r", "24,17": "s", "24,18": "r", "24,19": "s", "24,20": "r", "24,21": "r", "24,22": "r", "24,23": "r" },
+    tileClass: { "L": "landmark", "C": "cafe", "B": "landmark" },
+    tileToLocation: { "L": "preston-st", "C": "littleitaly-cafe", "B": "bambini-sculpture" },
+    stopChars: ["T", "X"],
+    grid: [
+      "####################################",
+      "#HHsrsHHsrsHHsrsHHsrsHHsksHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsksHHsrsHHHH#",
+      "#sssrssssrssssrssssrsssskssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrkrrrrrrrrrr#",
+      "#sssrsssssssssrssssrsssskssssrsssss#",
+      "#HHsrsHHssBBBsrsBBsrsHHsksHHsrsHHHH#",
+      "#HHsrsHHssBBBsrsBBsrsHHsksHHsrsHHHH#",
+      "#sssrTsssssLssrssBsrsssXkssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrkrrrrrrrrrr#",
+      "#sssrssssrssssrssssrsssskssssrsssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsksHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsksHHsrsHHHH#",
+      "#sssrssssrssssrssssrsssskssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrssssrkrrrrrrrrrr#",
+      "#sssrssssrssssrsssssBBsskssssrsssss#",
+      "#HHsrsHHsrsHHsrsHHssBBssksHHsrsHHHH#",
+      "#sssrssssrssssrssssssCsskssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrkrrrrrrrrrr#",
+      "#sssrssssrssssrssssrsssskssssrsssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsksHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsksHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsksHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsksHHsrsHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsksHHsrsHHHH#",
+      "####################################",
+    ],
+  },
+  chinatown: {
+    cols: 34, rows: 24,
+    streetLabels: [{ name:"Somerset Street W", col:4, row:13, vertical:true }],
+    busRoute: { col: 4, stopRow: 8 },
+    tileClass: { "L": "landmark", "C": "cafe" },
+    tileToLocation: { "L": "chinatown-arch", "C": "chinatown-cafe" },
+    stopChars: ["T"],
+    grid: [
+      "##################################",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHH#",
+      "#sssrssssrssssrssssrssssrssssrsss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrsssssssssrssssrssssrssssrsss#",
+      "#HHsrsHHssBBBsrsHHsrsHHsrsHHsrsHH#",
+      "#HHsrsHHssBBBsrsHHsrsHHsrsHHsrsHH#",
+      "#sssrTsssssLssrssssrssssrssssrsss#",
+      "#rrrrrrrrrrrrrrrrrrssssrrrrrrrrrr#",
+      "#sssrssssrssssrsssssBBssrssssrsss#",
+      "#HHsrsHHsrsHHsrsHHssBBssrsHHsrsHH#",
+      "#HHsrsHHsrsHHsrsHHsssCssrsHHsrsHH#",
+      "#sssrssssrssssrssssrssssrssssrsss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrsss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHH#",
+      "##################################",
+    ],
+  },
+  downtown: {
+    cols: 70, rows: 46,
+    streetLabels: [{ name:"Wellington Street", col:4, row:20, vertical:true }, { name:"Sussex Drive", col:40, row:9, vertical:false }, { name:"Elgin Street", col:21, row:32, vertical:true }],
+    busRoute: { col: 4, stopRow: 8, waterNorth: true, exitSide: "left", bendRow: 9 },
+    trainRoute: { col: 63, stationRow: 12, waterNorth: true, exitSide: "right", bendRow: 9 },
+    trackUnderlay: { "63,9": "r", "64,9": "r", "65,9": "r", "66,9": "r", "67,9": "r", "68,9": "r", "63,10": "s", "63,11": "s", "63,12": "s", "63,13": "s", "63,14": "r", "63,15": "s", "63,16": "s", "63,17": "s", "63,18": "r", "63,19": "s", "63,20": "s", "63,21": "s", "63,22": "s", "63,23": "r", "63,24": "s", "63,25": "s", "63,26": "s", "63,27": "s", "63,28": "r", "63,29": "s", "63,30": "s", "63,31": "s", "63,32": "s", "63,33": "r", "63,34": "s", "63,35": "s", "63,36": "s", "63,37": "s", "63,38": "r", "63,39": "s", "63,40": "s", "63,41": "s", "63,42": "s", "63,43": "s", "63,44": "s" },
+    tileClass: { "L": "landmark", "M": "museum", "C": "cafe", "N": "museum", "E": "landmark", "V": "landmark", "D": "landmark", "K": "mall", "P": "landmark", "A": "landmark", "O": "landmark", "F": "museum", "G": "museum", "I": "museum", "W": "landmark", "R": "landmark", "Y": "landmark" },
+    tileToLocation: { "L": "byward", "M": "national-gallery", "C": "downtown-cafe", "N": "museum-of-nature", "E": "elgin-street", "V": "bank-st-village", "D": "dundonald-park", "K": "rideau-centre", "P": "parliament-hill", "A": "chateau-laurier", "O": "ottawa-locks", "F": "boc-museum", "G": "rc-mint", "I": "bytown-museum", "W": "war-memorial", "R": "nac", "Y": "dancing-bear" },
+    stopChars: ["T", "X"],
+    grid: [
+      "######################################################################",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwwwwwwwwsssrssssrwwwwwwwwwwwwwwwwsssrssssrwwwwwwwwwwwwwwwwsssrssss#",
+      "#wwwwwwrrrrrrrrrrrrrrrrrwwwwwwwwrrrrrrrrrrrrrrrrrwwwwwwwwrrrrrrrrrrrr#",
+      "#sssrsssssssssrssssrssssrsssssssssssssssssssrsssssssssrssssrssssrssss#",
+      "#HHsrsHsBBBsHsrsBBsrsHHsrsBBBsssBBssHsBBBsHsrsHHsBBBssrsHHsrsHHsrsHHH#",
+      "#HHsrsHsBBBsHsrsBBsrsHHsrsBBBsssBBssHsBBBsHsrsHHsBBBssrsHHsrsHHsrsHHH#",
+      "#sssrTssBBBsssrssYssssssrssAsssssOsssssLssssrssssBBBssrssssrssssrssss#",
+      "rrrrrrrssPssrrrrrrsBBBsrrrrrrrrssssrrrrrrrrrrrrrssMssrrrrrrrrrrkkkkkk#",
+      "#sssrssssrssssrssssBBBssrssssrssBBsssssrssssrssssrssssrssssrssskrssss#",
+      "#HHsrsHHsrsHHsrsHHssWsssrsHHsrssBBssHHsrsHHsrsHHsrsHHsrsHHsrsHHkrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHssssHsrsssIssHHsssssssssssrsHHsrsHHsrsHXkrsHHH#",
+      "#sssrsssssssssrssssrssssBBsssrssssrssssBBBsssBBssrssssrssssrssskrssss#",
+      "#rrrrrrsBBsrrrrrrrrrrrrsBBsrrrrrrrrrrrsBBBsrsBBsrrrrrrrrrrrrrrrkrrrrr#",
+      "#sssrsssBBssssrssssrsssssRsssrssssrsssssKsssssGssrssssrssssrssskrssss#",
+      "#HHsrsHssFsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHkrsHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssskrssss#",
+      "#rrrrrrrrrrrrssssrrrrrrrrrrrrrrrrrrrrrrrrrrrssssrrrrrrrrrrrrrrrkrrrrr#",
+      "#sssrssssrssssBBsssrssssrssssrssssrssssrsssssBBssrssssrssssrssskrssss#",
+      "#HHsrsHHsrsHHsBBsHsrsHHsrsHHsrsHHsrsHHsrsHHssBBssrsHHsrsHHsrsHHkrsHHH#",
+      "#HHsrsHHsrsHHssDsHsrsHHsrsHHsrsHHsrsHHsrsHHsssCssrsHHsrsHHsrsHHkrsHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssskrssss#",
+      "#rrrrrrrrrrrrrrrrrrrsssssrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrkrrrrrr",
+      "#sssrssssrssssrssssrsBBBsssssrssssrssssrssssrssssrssssrssssrssskrssss#",
+      "#HHsrsHHsrsHHsrsHHsrsBBBssHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHkrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrssEsssHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHkrsHHH#",
+      "#sssrssssrsssssssssrssssrssssrssssrssssrssssrssssrssssrssssrssskrssss#",
+      "#rrrrrrrrrrrrrsBBBsrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrkrrrrr#",
+      "#sssrssssssssssBBBsrssssrssssrssssrssssrssssrssssrssssrssssrssskrssss#",
+      "#HHsrsHsBBBsHssBBBsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHkrsHHH#",
+      "#HHsrsHsBBBsHsssNssrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHkrsHHH#",
+      "#sssrssssVssssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssskrssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrkrrrrrr",
+      "#sssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssskrssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHkrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHkrsHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssskrssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrkrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssssrssskrssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHkrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHkrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHkrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHkrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHkrsHHH#",
+      "######################################################################",
+    ],
+  },
+  stlaurent: {
+    cols: 40, rows: 28,
+    streetLabels: [{ name:"St. Laurent Blvd", col:4, row:15, vertical:true }],
+    busRoute: { col: 4, stopRow: 8 },
+    tileClass: { "K": "mall", "M": "museum", "E": "mall" },
+    tileToLocation: { "K": "stlaurent-mall", "M": "science-tech-museum", "E": "elmvale-acres-mall" },
+    stopChars: ["T"],
+    grid: [
+      "########################################",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrsssssssssrssssrssssrssssrssssrssss#",
+      "#HHsrsHHssBBBsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#HHsrsHHssBBBsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#sssrTssssBBBsrssssrssssrssssrssssrssss#",
+      "#rrrrrrrrssKssrrrrrrrrrrrssssrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrsBBsrssssrssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsBBsrsHHsrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrssEsrsHHsrsHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#rrrrrrrrrrrrrrrrrrsssssrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrsssssBBBsrssssrssssrssss#",
+      "#HHsrsHHsrsHHsrsHHssBBBsrsHHsrsHHsrsHHH#",
+      "#sssrssssrssssrsssssBBBsrssssrssssrssss#",
+      "#rrrrrrrrrrrrrrrrrrssMssrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrssssrssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHsrsHHH#",
+      "########################################",
+    ],
+  },
+  lebreton: {
+    cols: 32, rows: 22,
+    streetLabels: [{ name:"Booth Street", col:4, row:12, vertical:true }],
+    busRoute: { col: 4, stopRow: 8, waterNorth: true, exitSide: "left", bendRow: 9 },
+    trainRoute: { col: 16, stationRow: 12, waterNorth: true, exitSide: "right", bendRow: 9 },
+    trackUnderlay: { "16,20": "s", "17,9": "r", "28,9": "r", "19,9": "r", "30,9": "r", "16,10": "s", "16,16": "s", "16,13": "s", "16,19": "s", "21,9": "r", "23,9": "r", "27,9": "r", "25,9": "r", "16,9": "s", "16,12": "s", "18,9": "r", "29,9": "r", "16,15": "s", "20,9": "r", "16,18": "s", "31,9": "s", "22,9": "r", "24,9": "r", "26,9": "r", "16,14": "s", "16,11": "s", "16,17": "s" },
+    tileClass: { "M": "museum", "P": "landmark" },
+    tileToLocation: { "M": "war-museum", "P": "lebreton-flats-park" },
+    stopChars: ["T", "X"],
+    grid: [
+      "################################",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwrssssrswwwwwwwwwwwwwwssssss#",
+      "#rrrrrrrrrrrrrwwwwwwwrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssss#",
+      "#HHsrsBBsrsHHsrssHsrsHHsrsHHHHH#",
+      "#HHsrsBBsrsssssssHsrsHHsrsHHHHH#",
+      "#sssrTsPsrssBBBssssrssssrssssss#",
+      "#rrrrrrrrrrsBBBskkkkkkkkkkkkkkkk",
+      "#sssrssssrssBBBskssrssssrssssss#",
+      "#HHsrsHHsrsssMsskHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrXkHsrsHHsrsHHHHH#",
+      "#sssrssssrssssrskssrssssrssssss#",
+      "#rrrrrrrrrrrrrrrkrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrskssrssssrssssss#",
+      "#HHsrsHHsrsHHsrskHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrskHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrskHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrskHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrskHsrsHHsrsHHHHH#",
+      "################################",
+    ],
+  },
+  newedin: {
+    cols: 36, rows: 26,
+    streetLabels: [{ name:"Sussex Drive", col:4, row:15, vertical:true }],
+    busRoute: { col: 4, stopRow: 8, waterNorth: true, exitSide: "left", bendRow: 9 },
+    tileClass: { "L": "landmark", "C": "cafe", "R": "landmark", "Z": "landmark", "Q": "landmark", "P": "landmark", "I": "landmark" },
+    tileToLocation: { "L": "rideau-hall", "C": "newedin-cafe", "R": "rideau-falls", "Z": "sussex-24", "Q": "beechwood-cemetery", "P": "rockcliffe-park", "I": "rideau-hall-inukshuk" },
+    stopChars: ["T"],
+    grid: [
+      "####################################",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwwwwwwwwwwsrsHHsrwwwwwwwwwwwwwwH#",
+      "#HwwwwwwwrsHHsrsHHsrsHHwwwwwwwsHHHH#",
+      "#dddrddddRddddrdddddddddrddHsrsHddd#",
+      "#HHsrsHsBBsHHsrsHHssBBssrsHHsrsHHHH#",
+      "#HHsrsHsBBsHHsrsHHssBBssrsHHsrsHHHH#",
+      "#sssrTssssssssrssssssPssrssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrsssss#",
+      "#HHsrsBBsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#HHsrsBBsrsHHsrsHHsrsHHsrsHHsrsHHHH#",
+      "#sssrssIsrssssrssssrssssrssssrsssss#",
+      "#rrrrrrsssssrrrrrrrssssrrrrrrrrrrrr#",
+      "#sssrsssBBBsssrsssssBBssrssssrsssss#",
+      "#HHsrsHsBBBsHsrsHHssBBssrsHHsrsHHHH#",
+      "#sssrssssLssssrssssssCssrssssrsssss#",
+      "#rrrrrrssssrrrrrrrrssssrrrrrrrrrrrr#",
+      "#sssrsssBBssssrsssssBBssrssssrsssss#",
+      "#HHsrsHsBBsHHsrsHHssBBssrsHHsrsHHHH#",
+      "#HHsrsHssZsHHsrsHHsssQssrsHHsrsHHHH#",
+      "#sssrssssrssssrssssrssssrssssrsssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssrsssss#",
+      "####################################",
+    ],
+  },
+  gatineau: {
+    cols: 54, rows: 36,
+    streetLabels: [{ name:"Rue Laurier", col:4, row:18, vertical:true }],
+    busRoute: { col: 4, stopRow: 8, waterSouth: true, exitSide: "left", bendRow: 28 },
+    tileClass: { "M": "museum", "L": "landmark", "K": "landmark", "U": "landmark" },
+    tileToLocation: { "M": "museum-history", "L": "art-walk", "K": "mackenzie-king-estate", "U": "king-estate-ruins" },
+    stopChars: ["T"],
+    grid: [
+      "######################################################",
+      "#HHsrsHHsrsHHsrsHHsrHpppppppppppppppppppppppppppppppp#",
+      "#HHsrsHHsrsHHsrsHHsrHpppppppppppppppppppppppppppppppp#",
+      "#sssrssssrssssrssssrHpppppppppppppppppppppppppppppppp#",
+      "#rrrrrrrrrrrrrrrrrrrHpppppppppppppppppppppppppppppppp#",
+      "#sssrsssssssssrssssrHpppppppppppppppppppppppppppppppp#",
+      "#HHsrsHHssBBBsrsHHsrHpppppppppptttttppppppppppppppppp#",
+      "#HHsrsHHssBBBsrsHHsrHpppppppppptBBBtppppppppppppppppp#",
+      "#sssrTssssBBBsrssssrHpppppppppptBBBtppppppppppppppppp#",
+      "#rrrrrrrrssMssrrrrrrHpppppppppptBBBtppppppppppppppppp#",
+      "#sssrssssrssssrssssrHppppptttttttKttppppppppppppppppp#",
+      "#HHsrsHHsrsHHsrsHHsrHppppptppppppptpppppppppppppppppp#",
+      "#HHsrsHHsrsHHsrsHHsrHppppptppppppptpppppppppppppppppp#",
+      "#sssrssssrssssrssssrHppppptppppppptpppppppppppppppppp#",
+      "#rrrrrrrrsssssrrrrrrHppppptppppppptpppppppppppppppppp#",
+      "#sssrsssssBBBsrssssrHppppptppppppptpppppppppppppppppp#",
+      "#HHsrsHHssBBBsrsHHsrHppppptppppppptttttttttpppppppppp#",
+      "#sssrssssssLssrssssrHppppptpppppppppppptttttppppppppp#",
+      "#rrrrrrrrrrrrrrrrrrttttttttpppppppppppptBBBtppppppppp#",
+      "#sssrssssrssssrssssrHpppppppppppppppppptBBBtppppppppp#",
+      "#HHsrsHHsrsHHsrsHHsrHppppppppppppppppppttUttppppppppp#",
+      "#HHsrsHHsrsHHsrsHHsrHppppppppppppppppppppptpppppppppp#",
+      "#sssrssssrssssrssssrHppppppppppppppppppppptpppppppppp#",
+      "#rrrrrrrrrrrrrrrrrrrHppppppppppppppppppppptpppppppppp#",
+      "#sssrssssrssssrssssrHppppppppppppppppppppptpppppppppp#",
+      "#HHsrsHHsrsHHsrsHHsrHpppppppppppppppppppppppppppppppp#",
+      "#HHsrsHHsrsHHsrsHHsrHpppppppppppppppppppppppppppppppp#",
+      "#sssrssssrssssrssssrHpppppppppppppppppppppppppppppppp#",
+      "#rrrrrrrrrrrrrrrrrrrHpppppppppppppppppppppppppppppppp#",
+      "#sssrssssrswwwwwsssrHpppppppppppwwwwwpppppppppppppppp#",
+      "#HHsrsHHswwwwwwwwwsrHpppppppppwwwwwwwwwppppppppppppww#",
+      "#sssrsswwwwwwwwwwwwrHpppppppwwwwwwwwwwwwpppppppppwwww#",
+      "#rrrrwwwwwwwwwwwwwwwwpppppwwwwwwwwwwwwwwwwpppppwwwwww#",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "######################################################",
+    ],
+  },
+  eastend: {
+    cols: 32, rows: 22,
+    streetLabels: [{ name:"Rockcliffe Parkway", col:4, row:12, vertical:true }],
+    busRoute: { col: 4, stopRow: 8, waterNorth: true, exitSide: "left", bendRow: 9 },
+    tileClass: { "M": "museum", "K": "landmark" },
+    tileToLocation: { "M": "aviation-museum", "K": "beacon-hill-park" },
+    stopChars: ["T"],
+    grid: [
+      "################################",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwwwwwwwwwwwwwwwwwwwwwwwwwwww#",
+      "#wwwwwwwwwssssrsswwwwwwwwwwwwww#",
+      "#wwwwwwrrrrrrrrrrrrrrwwwwwwwrrr#",
+      "#sssrssssrssssrssssrssssrssssss#",
+      "#HHsrsHHsrsHHsrsBBsrsHHsrsHHHHH#",
+      "#HHsrsHHsrssssssBBsrsHHsrsHHHHH#",
+      "#sssrTsssrssBBBssKsrssssrssssss#",
+      "#rrrrrrrrrrsBBBsrrrrrrrrrrrrrrr#",
+      "#sssrssssrssBBBssssrssssrssssss#",
+      "#HHsrsHHsrsssMssHHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "#sssrssssrssssrssssrssssrssssss#",
+      "#rrrrrrrrrrrrrrrrrrrrrrrrrrrrrr#",
+      "#sssrssssrssssrssssrssssrssssss#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "#HHsrsHHsrsHHsrsHHsrsHHsrsHHHHH#",
+      "################################",
+    ],
+  },
+};
+
+const TILE_PX = 26;
+const BASE_TILE_CLASS = { "#":"building", "H":"building", "B":"institutional", "g":"grass", "r":"road", "s":"sidewalk", "p":"hills", "t":"trail", "w":"water", "d":"sand", "k":"tracks" };
+function currentHubData(){ return NEIGHBOURHOOD_GRIDS[state.currentHub]; }
+function tileClassFor(hubData, ch){
+  if(hubData.tileClass[ch]) return hubData.tileClass[ch];
+  if(ch === "T") return "transit";
+  if(hubData.stopChars.includes(ch)) return "otrain-station";
+  return BASE_TILE_CLASS[ch] || "road";
+}
+function findTileCoord(hubId, ch){
+  const hubData = NEIGHBOURHOOD_GRIDS[hubId];
+  for(let r=0;r<hubData.rows;r++){
+    for(let c=0;c<hubData.cols;c++){
+      if(hubData.grid[r][c]===ch) return {col:c,row:r};
+    }
+  }
+  return {col:0,row:0};
+}
+// Finds a walkable tile next to the given tile, so Steve can be placed beside a
+// stop/landmark instead of directly on its trigger tile (standing on the tile itself
+// would immediately re-trigger it, e.g. bouncing straight back out to the transit map).
+function findSpawnBeside(hubId, tile){
+  const hubData = NEIGHBOURHOOD_GRIDS[hubId];
+  const offsets = [{dc:1,dr:0},{dc:-1,dr:0},{dc:0,dr:1},{dc:0,dr:-1}];
+  for(const {dc,dr} of offsets){
+    const nc = tile.col+dc, nr = tile.row+dr;
+    if(nc<0||nr<0||nc>=hubData.cols||nr>=hubData.rows) continue;
+    const ch = hubData.grid[nr][nc];
+    if(ch !== "#" && ch !== "H" && ch !== "B"){
+      return {col:nc, row:nr};
+    }
+  }
+  return tile; // fallback — shouldn't happen given how stops are placed
+}
+function isWorldWalkable(px,py){
+  const hubData = currentHubData();
+  const c = Math.floor(px/TILE_PX), r = Math.floor(py/TILE_PX);
+  if(c<0||r<0||c>=hubData.cols||r>=hubData.rows) return false;
+  const ch = hubData.grid[r][c];
+  if(ch === "#" || ch === "H" || ch === "B" || ch === "w") return false;
+  if(hubData.trainRoute && c === hubData.trainRoute.col-1 && r === hubData.trainRoute.stationRow){
+    const train = vehicleState(state.currentHub, "train", hubData.trainRoute);
+    if(train.maintenance) return false;
+  }
+  return true;
+}
+// Steve's continuous world position, in pixels. Starts centered on his front door.
+const steveStart = findSpawnBeside("carlington", findTileCoord("carlington", "S"));
+let steveX = (steveStart.col + 0.5) * TILE_PX;
+let steveY = (steveStart.row + 0.5) * TILE_PX;
+let lastTriggerTileKey = null;
+let stationTileEl = null; // DOM reference to the current hub's O-Train station tile, if any
+let trackTileEls = {}; // "col,row" -> tile element, for tiles that are part of the (subterranean) tracks
+let lastRevealedTrackKey = null; // which track tile currently shows ground-level pavement under Steve
+
+
+const locations = {
+  lowertown: [
+    { id:"notre-dame-cathedral", name:"Notre-Dame Cathedral Basilica", type:"landmark", x:0.3, y:0.3, outlet:false },
+    { id:"st-brigids-church", name:"St. Brigid's Church", type:"landmark", x:0.6, y:0.55, outlet:false },
+    { id:"lowertown-stop", name:"King Edward Ave. Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+  ],
+  sandyhill: [
+    { id:"uottawa", name:"University of Ottawa", type:"landmark", x:0.3, y:0.3, outlet:true },
+    { id:"strathcona-park", name:"Strathcona Park", type:"landmark", x:0.6, y:0.3, outlet:false },
+    { id:"laurier-house", name:"Laurier House", type:"landmark", x:0.6, y:0.6, outlet:true },
+    { id:"macdonald-gardens-park", name:"MacDonald Gardens Park", type:"landmark", x:0.3, y:0.6, outlet:false },
+    { id:"sandyhill-stop", name:"Laurier Ave. Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+  ],
+  vanier: [
+    { id:"vanier-museopark", name:"Vanier Museopark", type:"landmark", x:0.3, y:0.3, outlet:true },
+    { id:"notre-dame-grotto", name:"Notre-Dame-de-Lourdes Grotto", type:"landmark", x:0.6, y:0.55, outlet:false },
+    { id:"vanier-stop", name:"Montreal Rd. Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+  ],
+  oldottawa: [
+    { id:"carleton-university", name:"Carleton University", type:"landmark", x:0.3, y:0.3, outlet:true },
+    { id:"mayfair-theatre", name:"Mayfair Theatre", type:"landmark", x:0.65, y:0.3, outlet:true },
+    { id:"flora-footbridge", name:"Flora Footbridge", type:"landmark", x:0.65, y:0.6, outlet:false },
+    { id:"saint-paul-university", name:"Saint Paul University", type:"landmark", x:0.3, y:0.6, outlet:true },
+    { id:"oldottawa-stop", name:"Bank St. Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+  ],
+  huntclub: [
+    { id:"ottawa-hunt-golf-club", name:"Ottawa Hunt and Golf Club", type:"landmark", x:0.4, y:0.45, outlet:false },
+    { id:"huntclub-stop", name:"Hunt Club Rd. Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+  ],
+  bayshore: [
+    { id:"bayshore-mall", name:"Bayshore Shopping Centre", type:"mall", x:0.3, y:0.3, outlet:true, sellsCharger:true },
+    { id:"britannia-beach", name:"Britannia Beach & Park", type:"landmark", x:0.6, y:0.6, outlet:false, recordingValue:"medium",
+      flavor:"A sandy beach and riverside park right on the Ottawa River — one of the city's most popular summer spots." },
+  ],
+  carlington: [
+    { id:"steve-house", name:"Steve's House", type:"home", x:0.5, y:0.55, outlet:true, isHome:true },
+    { id:"exp-farm", name:"Central Experimental Farm", type:"landmark", x:0.75, y:0.3, outlet:false, recordingValue:"medium" },
+    { id:"dominion-observatory", name:"Dominion Observatory Campus", type:"landmark", x:0.85, y:0.2, outlet:false, recordingValue:"medium" },
+    { id:"food-ag-museum", name:"Canada Agriculture & Food Museum", type:"museum", x:0.72, y:0.3, outlet:true, recordingValue:"high" },
+    { id:"tropical-greenhouse", name:"Tropical Greenhouse", type:"greenhouse", x:0.72, y:0.15, outlet:false, recordingValue:"medium" },
+    { id:"dominion-arboretum", name:"Dominion Arboretum", type:"landmark", x:0.85, y:0.5, outlet:false, recordingValue:"medium" },
+    { id:"ornamental-gardens", name:"Ornamental Gardens", type:"landmark", x:0.72, y:0.65, outlet:false, recordingValue:"medium" },
+    { id:"jamaican-takeout", name:"Jamaican Takeout", type:"restaurant", x:0.2, y:0.28, outlet:true, recordingValue:"medium" },
+    { id:"neighbourhood-park", name:"Neighbourhood Park", type:"landmark", x:0.25, y:0.8, outlet:false, recordingValue:"low",
+      flavor:"A quiet little park. Nothing much happens here — no concerts, no markets, just some benches and trees." },
+    { id:"yard-sale", name:"Yard Sale", type:"landmark", x:0.1, y:0.5, outlet:false, recordingValue:"high",
+      flavor:"Someone's clearing out their garage today. Worth pointing the camera at." },
+  ],
+  southkeys: [
+    { id:"billings-estate", name:"Billings Estate Museum", type:"museum", x:0.3, y:0.35, outlet:true },
+    { id:"billings-mall", name:"Billings Bridge Shopping Centre", type:"mall", x:0.65, y:0.6, outlet:true, sellsCharger:true },
+    { id:"hogs-back-falls", name:"Hog's Back Falls", type:"landmark", x:0.75, y:0.3, outlet:false },
+    { id:"mooneys-bay-park", name:"Mooney's Bay Park", type:"landmark", x:0.8, y:0.5, outlet:false },
+    { id:"southkeys-mall", name:"South Keys Shopping Centre", type:"mall", x:0.85, y:0.65, outlet:true },
+    { id:"vincent-massey-park", name:"Vincent Massey Park", type:"landmark", x:0.4, y:0.5, outlet:false,
+      flavor:"A sprawling riverside park along the Rideau — wooded trails, open meadows, and a quiet stretch of water worth pointing the camera at." },
+    { id:"southkeys-stop", name:"South Keys Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+    { id:"southkeys-otrain", name:"South Keys O-Train Station", type:"otrain", x:0.5, y:0.85, outlet:false },
+  ],
+  glebe: [
+    { id:"lansdowne", name:"Lansdowne Park", type:"landmark", x:0.4, y:0.4, outlet:false },
+    { id:"dows-lake", name:"Dow's Lake", type:"landmark", x:0.75, y:0.3, outlet:false },
+    { id:"bank-street-sculptures", name:"Bank Street Sculptures", type:"landmark", x:0.55, y:0.5, outlet:false,
+      flavor:"Whimsical metal figures perched high on skinny poles along Bank Street — easy to miss if you're not looking up." },
+    { id:"glebe-cafe", name:"Bank St. Café", type:"cafe", x:0.65, y:0.65, outlet:true },
+    { id:"glebe-stop", name:"Bank St. Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+  ],
+  westboro: [
+    { id:"westboro-beach", name:"Westboro Beach", type:"landmark", x:0.35, y:0.35, outlet:false },
+    { id:"remic-rapids-park", name:"Remic Rapids Park", type:"landmark", x:0.6, y:0.6, outlet:false, recordingValue:"medium",
+      flavor:"Home to John Felice Ceprano's balanced rock sculptures along the Ottawa River — an ephemeral installation rebuilt each year, gone every winter when the ice takes it out." },
+    { id:"hintonburg-cafe", name:"Hintonburg Café", type:"cafe", x:0.65, y:0.6, outlet:true },
+    { id:"carlingwood-mall", name:"Carlingwood Mall", type:"mall", x:0.3, y:0.5, outlet:true, sellsCharger:true },
+    { id:"westboro-stop", name:"Westboro Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+    { id:"westboro-otrain", name:"Westboro O-Train Station", type:"otrain", x:0.5, y:0.85, outlet:false },
+  ],
+  littleitaly: [
+    { id:"preston-st", name:"Preston Street", type:"landmark", x:0.4, y:0.4, outlet:false },
+    { id:"bambini-sculpture", name:"Bambini", type:"landmark", x:0.55, y:0.35, outlet:false,
+      flavor:"Giant sculpted soccer balls at Preston and Gladstone — everyone calls them the bowling pins." },
+    { id:"littleitaly-cafe", name:"Preston St. Café", type:"cafe", x:0.65, y:0.65, outlet:true },
+    { id:"littleitaly-stop", name:"Preston St. Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+    { id:"corso-italia-otrain", name:"Corso Italia O-Train Station", type:"otrain", x:0.5, y:0.85, outlet:false },
+  ],
+  chinatown: [
+    { id:"chinatown-arch", name:"Chinatown Royal Arch", type:"landmark", x:0.4, y:0.35, outlet:false },
+    { id:"chinatown-cafe", name:"Somerset St. Café", type:"cafe", x:0.65, y:0.65, outlet:true },
+    { id:"chinatown-stop", name:"Somerset St. Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+  ],
+  downtown: [
+    { id:"byward", name:"ByWard Market", type:"landmark", x:0.3, y:0.3, outlet:false },
+    { id:"national-gallery", name:"National Gallery of Canada", type:"museum", x:0.6, y:0.25, outlet:true },
+    { id:"downtown-cafe", name:"Sparks St. Café", type:"cafe", x:0.55, y:0.65, outlet:true },
+    { id:"museum-of-nature", name:"Canadian Museum of Nature", type:"museum", x:0.4, y:0.5, outlet:true },
+    { id:"elgin-street", name:"Elgin Street", type:"landmark", x:0.5, y:0.6, outlet:false },
+    { id:"bank-st-village", name:"Bank St. / The Village", type:"landmark", x:0.7, y:0.7, outlet:false },
+    { id:"dundonald-park", name:"Dundonald Park", type:"landmark", x:0.3, y:0.8, outlet:false },
+    { id:"downtown-stop", name:"Rideau Centre Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+    { id:"rideau-otrain", name:"Rideau O-Train Station", type:"otrain", x:0.35, y:0.85, outlet:false },
+    { id:"rideau-centre", name:"CF Rideau Centre", type:"mall", x:0.2, y:0.2, outlet:true, sellsCharger:true },
+    { id:"parliament-hill", name:"Parliament Hill / Peace Tower", type:"landmark", x:0.5, y:0.15, outlet:false },
+    { id:"chateau-laurier", name:"Château Laurier", type:"landmark", x:0.55, y:0.25, outlet:false },
+    { id:"ottawa-locks", name:"Ottawa Locks", type:"landmark", x:0.5, y:0.35, outlet:false },
+    { id:"boc-museum", name:"Bank of Canada Museum", type:"museum", x:0.45, y:0.4, outlet:true },
+    { id:"rc-mint", name:"Royal Canadian Mint", type:"museum", x:0.55, y:0.5, outlet:true },
+    { id:"bytown-museum", name:"Bytown Museum", type:"museum", x:0.6, y:0.6, outlet:true },
+    { id:"war-memorial", name:"National War Memorial", type:"landmark", x:0.4, y:0.7, outlet:false },
+    { id:"dancing-bear", name:"Dancing Bear (Jeanne d'Arc Court)", type:"landmark", x:0.3, y:0.55, outlet:false,
+      flavor:"A bronze bear, mid-dance, tucked into a quiet courtyard just off the market's noise." },
+    { id:"nac", name:"National Arts Centre", type:"landmark", x:0.5, y:0.8, outlet:true },
+  ],
+  stlaurent: [
+    { id:"stlaurent-mall", name:"St. Laurent Shopping Centre", type:"mall", x:0.3, y:0.3, outlet:true, sellsCharger:true },
+    { id:"science-tech-museum", name:"Canada Science and Technology Museum", type:"museum", x:0.6, y:0.6, outlet:true },
+    { id:"elmvale-acres-mall", name:"Elmvale Acres Shopping Centre", type:"mall", x:0.7, y:0.4, outlet:true },
+    { id:"stlaurent-stop", name:"St. Laurent Blvd. Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+  ],
+  lebreton: [
+    { id:"war-museum", name:"Canadian War Museum", type:"museum", x:0.5, y:0.5, outlet:true },
+    { id:"lebreton-flats-park", name:"LeBreton Flats Park", type:"landmark", x:0.25, y:0.3, outlet:false },
+    { id:"lebreton-stop", name:"LeBreton Flats Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+    { id:"pimisi-otrain", name:"Pimisi O-Train Station", type:"otrain", x:0.5, y:0.85, outlet:false },
+  ],
+  newedin: [
+    { id:"rideau-hall", name:"Rideau Hall", type:"landmark", x:0.4, y:0.4, outlet:false },
+    { id:"rideau-falls", name:"Rideau Falls", type:"landmark", x:0.75, y:0.25, outlet:false },
+    { id:"sussex-24", name:"24 Sussex Drive", type:"landmark", x:0.8, y:0.4, outlet:false },
+    { id:"beechwood-cemetery", name:"Beechwood Cemetery", type:"landmark", x:0.85, y:0.55, outlet:false },
+    { id:"rideau-hall-inukshuk", name:"Rideau Hall Inukshuk", type:"landmark", x:0.35, y:0.6, outlet:false,
+      flavor:"A stone inukshuk standing quietly on the Rideau Hall grounds." },
+    { id:"rockcliffe-park", name:"Rockcliffe Park", type:"landmark", x:0.8, y:0.7, outlet:false },
+    { id:"newedin-cafe", name:"New Edinburgh Café", type:"cafe", x:0.65, y:0.6, outlet:true },
+    { id:"newedin-stop", name:"New Edinburgh Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+  ],
+  gatineau: [
+    { id:"museum-history", name:"Canadian Museum of History", type:"museum", x:0.4, y:0.4, outlet:true },
+    { id:"art-walk", name:"Art Walk (Eiffel Bridge)", type:"landmark", x:0.65, y:0.6, outlet:false },
+    { id:"mackenzie-king-estate", name:"Mackenzie King Estate", type:"landmark", x:0.55, y:0.3, outlet:false, recordingValue:"medium",
+      flavor:"The former PM's summer estate in Gatineau Park, all rolling grounds and stone cottages." },
+    { id:"king-estate-ruins", name:"The Ruins", type:"landmark", x:0.75, y:0.55, outlet:false, recordingValue:"high",
+      flavor:"Imported architectural ruins — pieces of Westminster and the old Parliament Buildings, arranged like a picturesque folly. Great backdrop for an intro or outro selfie." },
+    { id:"gatineau-stop", name:"Gatineau Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+  ],
+  eastend: [
+    { id:"aviation-museum", name:"Canada Aviation & Space Museum", type:"museum", x:0.5, y:0.5, outlet:true },
+    { id:"beacon-hill-park", name:"Beacon Hill Park", type:"landmark", x:0.6, y:0.7, outlet:false },
+    { id:"eastend-stop", name:"East End Transit Stop", type:"transit", x:0.15, y:0.85, outlet:false },
+  ],
+};
+
+const ICON_GLYPH = { home:"🏠", museum:"🏛", mall:"🛍", cafe:"☕", landmark:"📍", transit:"🚏", greenhouse:"🌿", restaurant:"🍽", otrain:"🚈" };
+
+// ---------- STATE ----------
+const state = {
+  gameMin: DAY_START_MIN,
+  money: 60,
+  battery: 100,
+  hasPortableCharger: false,
+  chargerUsesLeft: 0,
+  currentHub: "carlington",
+  currentLocation: "steve-house",
+  recordingMode: null, // null | "content" | "intro" | "outro"
+  inTransit: false,
+  rain: { scheduled:false, active:false, startMin:null, endMin:null },
+};
+
+// ---------- REAL OTTAWA WEATHER: if it's genuinely raining right now, work a rain
+// window into today's game day (not the whole day — just part of it). Keyless,
+// no server needed. If the fetch fails for any reason, the day is simply clear. ----------
+const rainOverlayEl = document.getElementById("rain-overlay");
+async function initRealWeather(){
+  try{
+    const res = await fetch("https://api.open-meteo.com/v1/forecast?latitude=45.4215&longitude=-75.6972&current=precipitation,weather_code&timezone=America%2FToronto");
+    if(!res.ok) return;
+    const data = await res.json();
+    const precip = data?.current?.precipitation ?? 0;
+    const code = data?.current?.weather_code ?? 0;
+    const rainCodes = new Set([51,53,55,56,57,61,63,65,66,67,80,81,82,95,96,99]);
+    const isRaining = precip > 0 || rainCodes.has(code);
+    if(!isRaining) return;
+    // schedule a rain window somewhere in the remaining day: starts within the next
+    // 1-5 game-hours, lasts 1-2.5 game-hours, clipped to stay inside the play day.
+    const earliestStart = state.gameMin + 60;
+    const latestStart = Math.min(DAY_END_MIN - 90, state.gameMin + 300);
+    if(latestStart <= earliestStart) return;
+    const startMin = earliestStart + Math.floor(Math.random() * (latestStart - earliestStart));
+    const duration = 60 + Math.floor(Math.random() * 90);
+    const endMin = Math.min(DAY_END_MIN, startMin + duration);
+    state.rain = { scheduled:true, active:false, startMin, endMin };
+  } catch(e){
+    // network hiccup or blocked request -- just skip rain for this session
+  }
+}
+function updateRainState(){
+  if(!state.rain.scheduled) return;
+  const wasActive = state.rain.active;
+  const nowActive = state.gameMin >= state.rain.startMin && state.gameMin < state.rain.endMin;
+  if(nowActive !== wasActive){
+    state.rain.active = nowActive;
+    if(rainOverlayEl) rainOverlayEl.classList.toggle("active", nowActive);
+    if(nowActive) showToast("It's started raining.");
+    else showToast("The rain has stopped.");
+  }
+}
+initRealWeather();
+
+// ---------- DOM ----------
+const clockEl = document.getElementById("clock-value");
+const rainIndicatorEl = document.getElementById("rain-indicator");
+const battFillEl = document.getElementById("battery-fill");
+const battPctEl = document.getElementById("battery-pct");
+const moneyEl = document.getElementById("money-value");
+const recordBtn = document.getElementById("record-btn");
+const recDot = document.getElementById("rec-dot");
+const recLabel = document.getElementById("rec-label");
+const recordMenu = document.getElementById("record-menu");
+
+const transitView = document.getElementById("transit-view");
+const transitWrap = document.getElementById("transit-canvas-wrap");
+const routeSvg = document.getElementById("route-svg");
+
+const nbhdView = document.getElementById("neighbourhood-view");
+const nbhdWrap = document.getElementById("nbhd-canvas-wrap");
+const nbhdTitle = document.getElementById("nbhd-title");
+const steveSprite = document.getElementById("steve-sprite");
+const gridModeOuter = document.getElementById("grid-mode-outer");
+const gridModeWrap = document.getElementById("grid-mode-wrap");
+const gridSteveSprite = document.getElementById("grid-steve-sprite");
+const busSprite = document.getElementById("bus-sprite");
+const trainSprite = document.getElementById("train-sprite");
+const gameOverOverlay = document.getElementById("game-over-overlay");
+const gridHint = document.getElementById("grid-hint");
+
+const travelOverlay = document.getElementById("travel-overlay");
+const travelHeadline = document.getElementById("travel-headline");
+const travelBarFill = document.getElementById("travel-bar-fill");
+const travelEta = document.getElementById("travel-eta");
+const skipTravelBtn = document.getElementById("skip-travel-btn");
+
+const actionPanel = document.getElementById("action-panel");
+const actionTitle = document.getElementById("action-title");
+const actionSub = document.getElementById("action-sub");
+const actionButtons = document.getElementById("action-buttons");
+const actionLog = document.getElementById("action-log");
+const closeActionBtn = document.getElementById("close-action-btn");
+const toastEl = document.getElementById("toast");
+
+// ---------- UTIL ----------
+function formatClock(min){
+  min = Math.floor(min) % (24*60);
+  let h = Math.floor(min/60);
+  const m = min%60;
+  const ampm = h>=12 ? "PM":"AM";
+  h = h%12; if(h===0) h=12;
+  return `${h}:${m.toString().padStart(2,"0")} ${ampm}`;
+}
+function showToast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add("show");
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(()=>toastEl.classList.remove("show"), 2200);
+}
+function graph(){
+  const g = {};
+  hubs.forEach(h=>g[h.id]=[]);
+  routes.concat(otrainRoutes).forEach(([a,b,min])=>{
+    g[a].push({to:b, min});
+    g[b].push({to:a, min});
+  });
+  return g;
+}
+const G = graph();
+function shortestPath(from,to){
+  const dist = {}, prev = {}, visited = new Set();
+  hubs.forEach(h=>dist[h.id]=Infinity);
+  dist[from]=0;
+  while(true){
+    let u=null, best=Infinity;
+    for(const h of hubs){ if(!visited.has(h.id) && dist[h.id]<best){ best=dist[h.id]; u=h.id; } }
+    if(u===null) break;
+    if(u===to) break;
+    visited.add(u);
+    for(const edge of G[u]){
+      const nd = dist[u]+edge.min;
+      if(nd < dist[edge.to]){ dist[edge.to]=nd; prev[edge.to]=u; }
+    }
+  }
+  if(dist[to]===Infinity) return null;
+  const path=[to];
+  let cur=to;
+  while(cur!==from){ cur=prev[cur]; path.unshift(cur); }
+  return { path, totalMin: dist[to] };
+}
+
+// ---------- RENDER: HUD ----------
+function renderHUD(){
+  if(state.battery <= 0){
+    clockEl.classList.add("hidden-time");
+  } else {
+    clockEl.classList.remove("hidden-time");
+    clockEl.textContent = formatClock(state.gameMin);
+  }
+  rainIndicatorEl.classList.toggle("active", state.rain.active);
+  const pct = Math.max(0, Math.round(state.battery));
+  battPctEl.textContent = state.battery<=0 ? "DEAD" : pct+"%";
+  battFillEl.style.width = Math.max(0,pct)+"%";
+  battFillEl.className = "battery-fill" + (state.battery<=0 ? " dead" : state.battery<25 ? " low":"");
+  moneyEl.textContent = "$"+state.money;
+  const active = state.recordingMode !== null;
+  recordBtn.classList.toggle("active", active);
+  recLabel.textContent = state.recordingMode || "idle";
+  recordMenu.querySelectorAll(".record-menu-item").forEach(item=>{
+    item.classList.toggle("selected", state.recordingMode === item.dataset.mode);
+  });
+}
+
+// ---------- RENDER: TRANSIT MAP ----------
+function renderTransitMap(){
+  transitWrap.querySelectorAll(".hub-btn").forEach(el=>el.remove());
+  routeSvg.innerHTML = "";
+  const rect = transitWrap.getBoundingClientRect();
+
+  routes.forEach(([a,b])=>{
+    const ha = hubs.find(h=>h.id===a), hb = hubs.find(h=>h.id===b);
+    const line = document.createElementNS("http://www.w3.org/2000/svg","line");
+    line.setAttribute("x1", ha.x*rect.width);
+    line.setAttribute("y1", ha.y*rect.height);
+    line.setAttribute("x2", hb.x*rect.width);
+    line.setAttribute("y2", hb.y*rect.height);
+    line.setAttribute("stroke", "#8a8060");
+    line.setAttribute("stroke-width", "2");
+    line.setAttribute("stroke-dasharray", "4 3");
+    routeSvg.appendChild(line);
+  });
+
+  otrainRoutes.forEach(([a,b])=>{
+    const ha = hubs.find(h=>h.id===a), hb = hubs.find(h=>h.id===b);
+    const line = document.createElementNS("http://www.w3.org/2000/svg","line");
+    line.setAttribute("x1", ha.x*rect.width);
+    line.setAttribute("y1", ha.y*rect.height);
+    line.setAttribute("x2", hb.x*rect.width);
+    line.setAttribute("y2", hb.y*rect.height);
+    line.setAttribute("stroke", "#c0392b");
+    line.setAttribute("stroke-width", "3");
+    routeSvg.appendChild(line);
+  });
+
+  hubs.forEach(h=>{
+    const btn = document.createElement("button");
+    const sideClass = h.labelSide === "above" ? " label-above" : "";
+    btn.className = "hub-btn" + sideClass + (h.id===state.currentHub ? " current":"");
+    btn.style.left = (h.x*100)+"%";
+    btn.style.top = (h.y*100)+"%";
+    btn.innerHTML = `<div class="dot"></div><div class="dot-label">${h.mapLabel || h.name}</div>`;
+    btn.addEventListener("click", ()=>onHubTapped(h.id));
+    transitWrap.appendChild(btn);
+  });
+}
+
+const TRANSIT_FARE = 4.10; // OC Transpo adult single-ride fare (tap/card), effective Jan 1 2026
+
+function onHubTapped(hubId){
+  if(hubId === state.currentHub){
+    enterNeighbourhood(hubId);
+    return;
+  }
+  const result = shortestPath(state.currentHub, hubId);
+  if(!result){ showToast("No route found."); return; }
+  if(state.money < TRANSIT_FARE){
+    showToast(`Not enough money for the fare ($${TRANSIT_FARE.toFixed(2)}).`);
+    return;
+  }
+  state.money -= TRANSIT_FARE;
+  renderHUD();
+  startTravel(hubId, result.totalMin, result.path);
+}
+
+// ---------- TRAVEL ----------
+let travelTimer = null;
+function startTravel(destHubId, totalMin, path){
+  state.inTransit = true;
+  travelOverlay.classList.add("active");
+  const destHub = hubs.find(h=>h.id===destHubId);
+  travelHeadline.textContent = `Traveling to ${destHub.name} — fare $${TRANSIT_FARE.toFixed(2)}`;
+  travelBarFill.style.width = "0%";
+  let elapsed = 0;
+  travelEta.textContent = `0 of ${totalMin} min`;
+
+  function finish(){
+    clearInterval(travelTimer);
+    travelOverlay.classList.remove("active");
+    state.inTransit = false;
+    state.currentHub = destHubId;
+    state.currentLocation = null;
+    if(GRID_MODE_HUBS.has(destHubId)){
+      const stop = findTileCoord(destHubId, "T");
+      const arrival = findSpawnBeside(destHubId, stop);
+      steveX = (arrival.col + 0.5) * TILE_PX;
+      steveY = (arrival.row + 0.5) * TILE_PX;
+      lastTriggerTileKey = null;
+    }
+    renderTransitMap();
+    enterNeighbourhood(destHubId);
+  }
+  skipTravelBtn.onclick = ()=>{
+    // Skip still charges the full exact game-time cost, it just fast-forwards the wait.
+    state.gameMin += (totalMin - elapsed);
+    drainBattery(totalMin - elapsed);
+    finish();
+  };
+
+  // Transit charges its EXACT specified minutes to the game clock (no compression/
+  // invention of numbers), but animates at a fixed ~250ms-per-game-minute pace so the
+  // player isn't stuck waiting in real time. Skip fast-forwards it entirely.
+  const MS_PER_TRANSIT_GAME_MIN = 250;
+  travelTimer = setInterval(()=>{
+    elapsed += 1;
+    state.gameMin += 1;
+    drainBattery(1);
+    updateRainState();
+    renderHUD();
+    const pct = Math.min(100, (elapsed/totalMin)*100);
+    travelBarFill.style.width = pct+"%";
+    travelEta.textContent = `${elapsed} of ${totalMin} min`;
+    if(elapsed >= totalMin){
+      finish();
+    }
+  }, MS_PER_TRANSIT_GAME_MIN);
+}
+
+// ---------- RENDER: NEIGHBOURHOOD ----------
+const GRID_MODE_HUBS = new Set(Object.keys(NEIGHBOURHOOD_GRIDS)); // all neighbourhoods are now walkable streets
+
+function enterNeighbourhood(hubId){
+  transitView.classList.remove("active");
+  nbhdView.classList.add("active");
+  const hub = hubs.find(h=>h.id===hubId);
+  nbhdTitle.textContent = hub.name;
+
+  if(GRID_MODE_HUBS.has(hubId)){
+    nbhdWrap.style.display = "none";
+    gridModeOuter.style.display = "block";
+    renderNeighbourhoodGrid(hubId);
+  } else {
+    nbhdWrap.style.display = "";
+    gridModeOuter.style.display = "none";
+    renderNeighbourhood(hubId);
+  }
+}
+
+function leaveToTransitMap(){
+  nbhdView.classList.remove("active");
+  transitView.classList.add("active");
+  renderTransitMap();
+}
+
+function renderNeighbourhood(hubId){
+  nbhdWrap.querySelectorAll(".loc-btn").forEach(el=>el.remove());
+  const locs = locations[hubId] || [];
+  locs.forEach(loc=>{
+    const btn = document.createElement("button");
+    btn.className = "loc-btn";
+    btn.style.left = (loc.x*100)+"%";
+    btn.style.top = (loc.y*100)+"%";
+    btn.innerHTML = `
+      <div class="loc-icon ${loc.type}">
+        ${ICON_GLYPH[loc.type]||"?"}
+        ${loc.outlet ? '<span class="loc-outlet-badge">⚡</span>':""}
+      </div>
+      <div class="loc-label">${loc.name}</div>
+    `;
+    btn.addEventListener("click", ()=>openLocation(hubId, loc));
+    nbhdWrap.appendChild(btn);
+  });
+  // place Steve sprite at current location if in this hub, else at first location
+  const at = locs.find(l=>l.id===state.currentLocation) || locs[0];
+  if(at){
+    steveSprite.style.left = (at.x*100)+"%";
+    steveSprite.style.top = (at.y*100)+"%";
+  }
+}
+
+// ---------- RENDER + MOVEMENT: WALKABLE GRID MODE (free movement, leash control) ----------
+function renderNeighbourhoodGrid(hubId){
+  const hubData = NEIGHBOURHOOD_GRIDS[hubId];
+  gridModeWrap.style.gridTemplateColumns = `repeat(${hubData.cols}, ${TILE_PX}px)`;
+  gridModeWrap.style.gridTemplateRows = `repeat(${hubData.rows}, ${TILE_PX}px)`;
+  gridModeWrap.style.width = (hubData.cols*TILE_PX)+"px";
+  gridModeWrap.style.height = (hubData.rows*TILE_PX)+"px";
+  gridModeWrap.querySelectorAll(".gtile").forEach(el=>el.remove());
+  stationTileEl = null;
+  trackTileEls = {}; // "col,row" -> element, for the ground-reveal-under-Steve effect
+  for(let r=0;r<hubData.rows;r++){
+    for(let c=0;c<hubData.cols;c++){
+      const ch = hubData.grid[r][c];
+      const div = document.createElement("div");
+      div.className = "gtile " + tileClassFor(hubData, ch);
+      if(hubId==="carlington" && yardSaleTile && c===yardSaleTile.col && r===yardSaleTile.row){
+        div.classList.add("yard-sale-marker");
+      }
+      if(hubData.trainRoute && c===hubData.trainRoute.col-1 && r===hubData.trainRoute.stationRow){
+        stationTileEl = div;
+      }
+      if(ch === "k"){
+        trackTileEls[c+","+r] = div;
+      }
+      gridModeWrap.insertBefore(div, gridSteveSprite);
+    }
+  }
+  gridModeWrap.querySelectorAll(".street-label").forEach(el=>el.remove());
+  if(hubData.streetLabels){
+    hubData.streetLabels.forEach(label=>{
+      const el = document.createElement("div");
+      el.className = "street-label" + (label.vertical ? " vertical" : "");
+      el.textContent = label.name;
+      el.style.left = ((label.col+0.5)*TILE_PX)+"px";
+      el.style.top = ((label.row+0.5)*TILE_PX)+"px";
+      gridModeWrap.insertBefore(el, gridSteveSprite);
+    });
+  }
+  lastRevealedTrackKey = null;
+  updateSteveVisual();
+  applyCamera(computeCamera());
+}
+
+function updateSteveVisual(){
+  gridSteveSprite.style.left = steveX+"px";
+  gridSteveSprite.style.top = steveY+"px";
+}
+
+function computeCamera(){
+  const hubData = currentHubData();
+  const rect = gridModeOuter.getBoundingClientRect();
+  const vw = rect.width || 1, vh = rect.height || 1;
+  const worldW = hubData.cols*TILE_PX, worldH = hubData.rows*TILE_PX;
+  const EDGE_MARGIN = TILE_PX; // keep a one-tile black gap between the map and the screen edge (left/right), so dragging near a boundary isn't cramped against the device bezel
+  let camX = vw/2 - steveX, camY = vh/2 - steveY;
+  let maxX = EDGE_MARGIN;
+  let minX = (vw - EDGE_MARGIN) - worldW;
+  if(minX > maxX) minX = maxX; // world narrower than the viewport: just center it
+  const minY = Math.min(0, vh-worldH);
+  camX = Math.max(minX, Math.min(maxX, camX));
+  camY = Math.max(minY, Math.min(0, camY));
+  return { x:camX, y:camY, vw, vh };
+}
+function applyCamera(camera){
+  gridModeWrap.style.transform = `translate(${camera.x}px, ${camera.y}px)`;
+}
+
+// axis-separated collision so Steve slides along walls instead of sticking
+const COLLIDE_RADIUS = 9;
+function tryMoveContinuous(dx,dy){
+  if(dx!==0){
+    const nx = steveX+dx;
+    const dir = Math.sign(dx);
+    if(isWorldWalkable(nx+dir*COLLIDE_RADIUS, steveY-COLLIDE_RADIUS) &&
+       isWorldWalkable(nx+dir*COLLIDE_RADIUS, steveY+COLLIDE_RADIUS)){
+      steveX = nx;
+    }
+  }
+  if(dy!==0){
+    const ny = steveY+dy;
+    const dir = Math.sign(dy);
+    if(isWorldWalkable(steveX-COLLIDE_RADIUS, ny+dir*COLLIDE_RADIUS) &&
+       isWorldWalkable(steveX+COLLIDE_RADIUS, ny+dir*COLLIDE_RADIUS)){
+      steveY = ny;
+    }
+  }
+}
+
+// Yard sale: occasionally, one random house in Carlington is holding a yard
+// sale — a higher-value recording opportunity than the (usually) uneventful streets.
+// Picked once per session from a handful of sidewalk spots that front a house.
+// (Carlington-only for now — the mechanic hasn't been extended to the other hubs yet.)
+const YARD_SALE_CANDIDATES = [
+  {col:3, row:1}, {col:3, row:7}, {col:3, row:13},
+  {col:23, row:19}, {col:6, row:26}, {col:27, row:31}, {col:14, row:38},
+];
+const yardSaleActive = Math.random() < 0.5; // not every day has one
+const yardSaleTile = yardSaleActive
+  ? YARD_SALE_CANDIDATES[Math.floor(Math.random()*YARD_SALE_CANDIDATES.length)]
+  : null;
+function checkTileTrigger(){
+  const hubId = state.currentHub;
+  const hubData = currentHubData();
+  const c = Math.floor(steveX/TILE_PX), r = Math.floor(steveY/TILE_PX);
+  if(c<0||r<0||c>=hubData.cols||r>=hubData.rows) return;
+  const ch = hubData.grid[r][c];
+  // Hubs with a scheduled busRoute/trainRoute handle boarding via checkVehicleBoarding()
+  // instead (boarding is gated by the vehicle's dwell window, not instant on touch).
+  const isLegacyBusStop = ch==="T" && !hubData.busRoute;
+  const isLegacyTrainStop = ch!=="T" && hubData.stopChars.includes(ch) && !hubData.trainRoute;
+  const isStop = isLegacyBusStop || isLegacyTrainStop;
+  const onYardSale = hubId==="carlington" && yardSaleTile && c===yardSaleTile.col && r===yardSaleTile.row;
+  if(isStop || hubData.tileToLocation[ch] || onYardSale){
+    const key = c+","+r;
+    if(lastTriggerTileKey !== key){
+      lastTriggerTileKey = key;
+      isDragging = false;
+      hideLeash();
+      if(isStop){
+        const isOtrain = ch!=="T";
+        showToast(isOtrain ? "Boarding the O-Train…" : "Boarding transit…");
+        leaveToTransitMap();
+      } else if(onYardSale){
+        const loc = locations.carlington.find(l=>l.id==="yard-sale");
+        if(loc) openLocation("carlington", loc);
+      } else {
+        const loc = locations[hubId].find(l=>l.id===hubData.tileToLocation[ch]);
+        if(loc) openLocation(hubId, loc);
+      }
+    }
+  } else {
+    lastTriggerTileKey = null;
+  }
+}
+
+// ---------- SCHEDULED BUS / TRAIN ----------
+const VEHICLE_DWELL_MIN = 2;
+let gameMinSmooth = 0; // continuous (sub-minute) game clock, used only for vehicle animation
+
+// Deterministic per-cycle pseudo-random, so a given cycle always resolves the same way
+// (no flicker between frames) but different hubs/cycles get independent outcomes.
+function seededRandom01(seedStr){
+  let h = 0;
+  for(let i=0;i<seedStr.length;i++){ h = (Math.imul(31,h) + seedStr.charCodeAt(i)) | 0; }
+  h = h ^ (h>>>16);
+  h = Math.imul(h, 0x45d9f3b);
+  h = h ^ (h>>>16);
+  return ((h>>>0) % 1000000) / 1000000;
+}
+
+// Bus: normally 15 min between departures. Occasionally late (30 min gap), rarely
+// very late (45 min gap). Never a full outage.
+function busCycleInfo(hubId, i){
+  const roll = seededRandom01(hubId+"-bus-"+i);
+  let len = 15;
+  if(roll < 0.08) len = 45;
+  else if(roll < 0.25) len = 30;
+  return { len, maintenance:false };
+}
+// Train: normally 10 min between departures. Occasionally the whole line shuts down
+// for an hour ("closed for maintenance") — no train runs and the station is inaccessible.
+function trainCycleInfo(hubId, i){
+  const roll = seededRandom01(hubId+"-train-"+i);
+  if(roll < 0.05) return { len:60, maintenance:true };
+  return { len:10, maintenance:false };
+}
+
+// Walks the chain of cycles from t=0 to find which cycle contains time `t`.
+function findVehicleCycle(hubId, kind, t){
+  let cum = 0, i = 0;
+  const infoFn = kind==="bus" ? busCycleInfo : trainCycleInfo;
+  while(i < 5000){
+    const info = infoFn(hubId, i);
+    if(cum + info.len > t) return { cycleIndex:i, cycleStart:cum, cycleLen:info.len, maintenance:info.maintenance };
+    cum += info.len;
+    i++;
+  }
+  return { cycleIndex:i, cycleStart:cum, cycleLen:15, maintenance:false }; // safety fallback
+}
+
+// Full state for a vehicle right now: whether it's running, where it is, whether it's dwelling.
+// Builds a travel path for a route. Normally just a straight vertical column running
+// off-screen at both ends. Where a route would otherwise run into water, it instead
+// bends 90 degrees a few tiles short of the water and exits off-screen to the side —
+// no real Ottawa bus or O-Train route crosses the river, so neither should these.
+const ROUTE_OFFSCREEN_PAD = 4;
+function buildRoutePath(route, totalCols, totalRows){
+  const col = route.col, dwellRow = route.dwellRow;
+  const exitCol = route.exitSide === "right" ? totalCols + ROUTE_OFFSCREEN_PAD : -ROUTE_OFFSCREEN_PAD;
+  const points = [];
+  if(route.waterSouth){
+    const bendRow = route.bendRow;
+    points.push({col:exitCol, row:bendRow});
+    points.push({col:col, row:bendRow});
+  } else {
+    points.push({col:col, row: totalRows + ROUTE_OFFSCREEN_PAD});
+  }
+  const dwellIndex = points.length;
+  points.push({col:col, row:dwellRow});
+  if(route.waterNorth){
+    const bendRow = route.bendRow;
+    points.push({col:col, row:bendRow});
+    points.push({col:exitCol, row:bendRow});
+  } else {
+    points.push({col:col, row:-ROUTE_OFFSCREEN_PAD});
+  }
+  return { points, dwellIndex };
+}
+function pathSegLen(a,b){ return Math.hypot(b.col-a.col, b.row-a.row); }
+function pointAtFraction(points, fraction){
+  const segLens = [];
+  let total = 0;
+  for(let i=0;i<points.length-1;i++){ const l = pathSegLen(points[i],points[i+1]); segLens.push(l); total += l; }
+  let target = Math.max(0, Math.min(1, fraction)) * total;
+  for(let i=0;i<segLens.length;i++){
+    if(target <= segLens[i] || i===segLens.length-1){
+      const t = segLens[i] > 0 ? Math.min(1, target/segLens[i]) : 0;
+      return {
+        col: points[i].col + (points[i+1].col-points[i].col)*t,
+        row: points[i].row + (points[i+1].row-points[i].row)*t,
+      };
+    }
+    target -= segLens[i];
+  }
+  return points[points.length-1];
+}
+const routePathCache = {}; // "hubId-kind" -> built path, since route geometry never changes at runtime
+function getRoutePath(hubId, kind, route){
+  const key = hubId+"-"+kind;
+  if(!routePathCache[key]){
+    const dwellRow = route.dwellRow !== undefined ? route.dwellRow : (route.stopRow !== undefined ? route.stopRow : route.stationRow);
+    routePathCache[key] = buildRoutePath({...route, dwellRow}, currentHubData().cols, currentHubData().rows);
+  }
+  return routePathCache[key];
+}
+
+function vehicleState(hubId, kind, route){
+  const cyc = findVehicleCycle(hubId, kind, gameMinSmooth);
+  if(cyc.maintenance){
+    return { visible:false, dwelling:false, maintenance:true, cycleIndex:cyc.cycleIndex };
+  }
+  const { points, dwellIndex } = getRoutePath(hubId, kind, route);
+  const entrancePoints = points.slice(0, dwellIndex+1);
+  const exitPoints = points.slice(dwellIndex);
+  const cyclePos = gameMinSmooth - cyc.cycleStart;
+  const travelMin = cyc.cycleLen - VEHICLE_DWELL_MIN;
+  const halfTravel = travelMin/2;
+  let pos, dwelling=false;
+  if(cyclePos < halfTravel){
+    pos = pointAtFraction(entrancePoints, cyclePos/halfTravel);
+  } else if(cyclePos < halfTravel + VEHICLE_DWELL_MIN){
+    pos = points[dwellIndex]; dwelling = true;
+  } else {
+    pos = pointAtFraction(exitPoints, (cyclePos - halfTravel - VEHICLE_DWELL_MIN)/halfTravel);
+  }
+  return { visible:true, dwelling, col:pos.col, row:pos.row, maintenance:false, cycleIndex:cyc.cycleIndex };
+}
+
+let lastMaintenanceToastCycle = {}; // hubId -> cycleIndex already announced, so it doesn't spam
+
+function checkVehicleBoarding(){
+  const hubId = state.currentHub;
+  const hubData = currentHubData();
+  if(!hubData.busRoute && !hubData.trainRoute) return;
+  const c = Math.floor(steveX/TILE_PX), r = Math.floor(steveY/TILE_PX);
+  if(c<0||r<0||c>=hubData.cols||r>=hubData.rows) return;
+  const ch = hubData.grid[r][c];
+  if(hubData.busRoute && ch==="T"){
+    const bus = vehicleState(hubId, "bus", hubData.busRoute);
+    if(bus.dwelling){
+      showToast("Boarding the bus…");
+      leaveToTransitMap();
+    }
+  } else if(hubData.trainRoute){
+    const train = vehicleState(hubId, "train", hubData.trainRoute);
+    if(train.maintenance){
+      // station tile is physically blocked during maintenance, so check proximity
+      // instead of exact tile match — the "sign" is visible as Steve approaches the door.
+      const stCol = hubData.trainRoute.col-1, stRow = hubData.trainRoute.stationRow;
+      const distTiles = Math.hypot(c-stCol, r-stRow);
+      if(distTiles <= 1.5 && lastMaintenanceToastCycle[hubId] !== train.cycleIndex){
+        lastMaintenanceToastCycle[hubId] = train.cycleIndex;
+        showToast("🚧 O-Train closed for maintenance");
+      }
+    } else if(ch!=="T" && hubData.stopChars.includes(ch) && train.dwelling){
+      showToast("Boarding the O-Train…");
+      leaveToTransitMap();
+    }
+  }
+}
+
+function checkBusCollision(){
+  const hubData = currentHubData();
+  if(!hubData.busRoute) return;
+  const steveCol = Math.floor(steveX/TILE_PX), steveRow = Math.floor(steveY/TILE_PX);
+  const bus = vehicleState(state.currentHub, "bus", hubData.busRoute);
+  if(!bus.visible || bus.dwelling) return;
+  if(Math.round(bus.col) === steveCol && Math.round(bus.row) === steveRow){
+    triggerBusGameOver();
+  }
+}
+
+function updateTrackGroundReveal(){
+  const hubData = currentHubData();
+  const c = Math.floor(steveX/TILE_PX), r = Math.floor(steveY/TILE_PX);
+  const key = c+","+r;
+  if(key === lastRevealedTrackKey) return;
+  if(lastRevealedTrackKey && trackTileEls[lastRevealedTrackKey]){
+    trackTileEls[lastRevealedTrackKey].className = "gtile tracks";
+  }
+  if(trackTileEls[key]){
+    const underlyingCh = (hubData.trackUnderlay && hubData.trackUnderlay[key]) || "s";
+    const underlyingClass = underlyingCh === "r" ? "road" : underlyingCh === "d" ? "sand" : "sidewalk";
+    trackTileEls[key].className = "gtile " + underlyingClass;
+    lastRevealedTrackKey = key;
+  } else {
+    lastRevealedTrackKey = null;
+  }
+}
+
+function updateVehicleSprites(){
+  const hubId = state.currentHub;
+  const hubData = currentHubData();
+  const inBounds = (col,row) => col >= -0.5 && col <= hubData.cols-0.5 && row >= -0.5 && row <= hubData.rows-0.5;
+  if(hubData.busRoute){
+    const bus = vehicleState(hubId, "bus", hubData.busRoute);
+    if(bus.visible && inBounds(bus.col, bus.row)){
+      busSprite.style.display = "flex";
+      busSprite.style.left = ((bus.col+0.5)*TILE_PX)+"px";
+      busSprite.style.top = ((bus.row+0.5)*TILE_PX)+"px";
+    } else {
+      busSprite.style.display = "none";
+    }
+  } else {
+    busSprite.style.display = "none";
+  }
+  if(hubData.trainRoute){
+    const train = vehicleState(hubId, "train", hubData.trainRoute);
+    if(stationTileEl){
+      stationTileEl.classList.toggle("maintenance", train.maintenance);
+    }
+    if(train.visible && inBounds(train.col, train.row)){
+      trainSprite.style.display = "flex";
+      trainSprite.style.left = ((train.col+0.5)*TILE_PX)+"px";
+      trainSprite.style.top = ((train.row+0.5)*TILE_PX)+"px";
+    } else {
+      trainSprite.style.display = "none";
+    }
+  } else {
+    trainSprite.style.display = "none";
+  }
+}
+
+let gameOverTriggered = false;
+function triggerBusGameOver(){
+  if(gameOverTriggered) return;
+  gameOverTriggered = true;
+  isDragging = false;
+  hideLeash();
+  gameOverOverlay.classList.add("active");
+}
+
+
+// ---------- LEASH DRAG CONTROL ----------
+let isDragging = false;
+const pointerScreen = { x:0, y:0 };
+const keysPressed = new Set();
+const MAX_SPEED = 120;          // px/sec at full leash extension
+const LEASH_SLOWDOWN_RADIUS = 80; // px in screen space; Steve slows/stops as he nears the drag point
+
+function updatePointerScreen(e){
+  const rect = gridModeOuter.getBoundingClientRect();
+  pointerScreen.x = e.clientX - rect.left;
+  pointerScreen.y = e.clientY - rect.top;
+}
+function hideLeash(){ /* leash visual removed by request; movement logic unaffected */ }
+function showLeash(){ /* leash visual removed by request; movement logic unaffected */ }
+
+gridModeOuter.addEventListener("pointerdown", (e)=>{
+  if(!GRID_MODE_HUBS.has(state.currentHub)) return;
+  if(actionPanel.classList.contains("active")) return;
+  isDragging = true;
+  updatePointerScreen(e);
+  gridHint.style.display = "none";
+  try{ gridModeOuter.setPointerCapture(e.pointerId); }catch(err){}
+});
+gridModeOuter.addEventListener("pointermove", (e)=>{
+  if(isDragging) updatePointerScreen(e);
+});
+["pointerup","pointercancel","pointerleave"].forEach(evt=>{
+  gridModeOuter.addEventListener(evt, ()=>{
+    isDragging = false;
+    hideLeash();
+  });
+});
+
+// Keyboard fallback for desktop testing — continuous (not grid-snapped) movement
+const KEY_TO_DIR = {
+  ArrowUp:"up", w:"up", W:"up",
+  ArrowDown:"down", s:"down", S:"down",
+  ArrowLeft:"left", a:"left", A:"left",
+  ArrowRight:"right", d:"right", D:"right",
+};
+window.addEventListener("keydown", (e)=>{
+  if(!nbhdView.classList.contains("active")) return;
+  if(!GRID_MODE_HUBS.has(state.currentHub)) return;
+  const dir = KEY_TO_DIR[e.key];
+  if(dir){ e.preventDefault(); keysPressed.add(dir); }
+});
+window.addEventListener("keyup", (e)=>{
+  const dir = KEY_TO_DIR[e.key];
+  if(dir) keysPressed.delete(dir);
+});
+
+// ---------- MAIN GAME LOOP (movement + camera, runs continuously) ----------
+let lastFrameTime = null;
+function gameFrame(now){
+  if(lastFrameTime===null) lastFrameTime = now;
+  const dt = Math.min(0.05, (now-lastFrameTime)/1000);
+  lastFrameTime = now;
+
+  const gridModeActive = nbhdView.classList.contains("active")
+    && GRID_MODE_HUBS.has(state.currentHub)
+    && !state.inTransit
+    && !actionPanel.classList.contains("active")
+    && !gameOverTriggered;
+
+  if(gridModeActive){
+    gameMinSmooth += dt / REAL_SEC_PER_GAME_MIN; // matches the main clock's rate
+
+    const camera = computeCamera();
+    const steveScreenX = steveX + camera.x, steveScreenY = steveY + camera.y;
+
+    let dirX=0, dirY=0, speedFactor=0;
+    if(isDragging){
+      const vx = pointerScreen.x - steveScreenX, vy = pointerScreen.y - steveScreenY;
+      const dist = Math.hypot(vx,vy);
+      if(dist > 3){
+        dirX = vx/dist; dirY = vy/dist;
+        speedFactor = Math.min(1, dist/LEASH_SLOWDOWN_RADIUS);
+        showLeash();
+      } else {
+        hideLeash();
+      }
+    } else if(keysPressed.size>0){
+      let kx=0, ky=0;
+      if(keysPressed.has("up")) ky-=1;
+      if(keysPressed.has("down")) ky+=1;
+      if(keysPressed.has("left")) kx-=1;
+      if(keysPressed.has("right")) kx+=1;
+      const len = Math.hypot(kx,ky);
+      if(len>0){ dirX=kx/len; dirY=ky/len; speedFactor=1; }
+    }
+
+    if(speedFactor>0){
+      const dist = MAX_SPEED*speedFactor*dt;
+      tryMoveContinuous(dirX*dist, dirY*dist);
+    }
+
+    updateSteveVisual();
+    applyCamera(camera);
+    checkTileTrigger();
+    updateTrackGroundReveal();
+    updateVehicleSprites();
+    checkVehicleBoarding();
+    checkBusCollision();
+  }
+
+  requestAnimationFrame(gameFrame);
+}
+requestAnimationFrame(gameFrame);
+
+// ---------- LOCATION ACTIONS ----------
+function openLocation(hubId, loc){
+  if(loc.type === "transit" || loc.type === "otrain"){
+    showToast(loc.type === "otrain" ? "Boarding the O-Train…" : "Boarding transit…");
+    leaveToTransitMap();
+    return;
+  }
+  state.currentLocation = loc.id;
+  if(!GRID_MODE_HUBS.has(hubId)){
+    renderNeighbourhood(hubId);
+  }
+  actionPanel.classList.add("active");
+  actionTitle.textContent = loc.name;
+  // Steve doesn't get a content-potential readout in real life either — recordingValue
+  // stays on the data (for a future end-of-day editing/scoring phase) but is never
+  // shown during play. Only practical info (outlet access) is surfaced here.
+  actionSub.textContent = loc.outlet ? "Outlet available here." : "No outlet here.";
+  actionLog.textContent = loc.flavor || "";
+  buildActionButtons(loc);
+}
+closeActionBtn.addEventListener("click", ()=>{
+  actionPanel.classList.remove("active");
+});
+
+// ---------- RECORD CONTROL: tap to record, tap-and-hold for Intro/Outro menu ----------
+function setRecordingMode(mode){
+  // mode: null to go idle, or "content"/"intro"/"outro". Only one mode is ever active.
+  state.recordingMode = mode;
+  renderHUD();
+}
+function startOrToggleContent(){
+  if(state.battery <= 0){ showToast("Camera battery is dead — can't record."); return; }
+  setRecordingMode(state.recordingMode === "content" ? null : "content");
+}
+function toggleMenuMode(mode){
+  if(state.battery <= 0){ showToast("Camera battery is dead — can't record."); return; }
+  setRecordingMode(state.recordingMode === mode ? null : mode);
+}
+
+const RECORD_HOLD_MS = 400;
+let recordHoldTimer = null;
+let recordHoldTriggered = false;
+
+function openRecordMenu(){
+  recordMenu.classList.add("open");
+}
+function closeRecordMenu(){
+  recordMenu.classList.remove("open");
+}
+
+recordBtn.addEventListener("pointerdown", (e)=>{
+  recordHoldTriggered = false;
+  clearTimeout(recordHoldTimer);
+  recordHoldTimer = setTimeout(()=>{
+    recordHoldTriggered = true;
+    openRecordMenu();
+  }, RECORD_HOLD_MS);
+});
+recordBtn.addEventListener("pointerup", (e)=>{
+  clearTimeout(recordHoldTimer);
+  if(!recordHoldTriggered){
+    startOrToggleContent();
+    return;
+  }
+  // Released after a hold — check whether the finger is over a menu item
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const item = el && el.closest ? el.closest(".record-menu-item") : null;
+  if(item) toggleMenuMode(item.dataset.mode);
+  closeRecordMenu();
+});
+["pointercancel","pointerleave"].forEach(evt=>{
+  recordBtn.addEventListener(evt, ()=>{
+    clearTimeout(recordHoldTimer);
+  });
+});
+// Menu items also respond directly to a tap (in case the hold already opened the
+// menu and the finger lifts and re-taps rather than dragging off the main button).
+recordMenu.querySelectorAll(".record-menu-item").forEach(item=>{
+  item.addEventListener("pointerup", (e)=>{
+    e.stopPropagation();
+    toggleMenuMode(item.dataset.mode);
+    closeRecordMenu();
+  });
+});
+// Close the menu if the player lifts off anywhere else on screen without landing on an item
+window.addEventListener("pointerup", (e)=>{
+  if(recordHoldTriggered && !e.target.closest("#record-control")){
+    closeRecordMenu();
+  }
+});
+
+function buildActionButtons(loc){
+  actionButtons.innerHTML = "";
+
+  // Recharge via outlet
+  if(loc.outlet){
+    const chargeBtn = document.createElement("button");
+    chargeBtn.className = "btn";
+    chargeBtn.disabled = state.battery >= 100;
+    chargeBtn.innerHTML = "🔌 Plug in & recharge";
+    chargeBtn.addEventListener("click", ()=>{
+      state.battery = 100;
+      if(state.hasPortableCharger) state.chargerUsesLeft = CHARGER_USES_MAX;
+      renderHUD();
+      actionLog.textContent = "Phone fully recharged from the outlet.";
+      buildActionButtons(loc);
+    });
+    actionButtons.appendChild(chargeBtn);
+  }
+
+  // Portable charger use (works anywhere, no outlet needed)
+  if(state.hasPortableCharger){
+    const pcBtn = document.createElement("button");
+    pcBtn.className = "btn gold";
+    const canUse = state.chargerUsesLeft > 0 && state.battery < 100;
+    pcBtn.disabled = !canUse;
+    pcBtn.innerHTML = `🔋 Use portable charger (${state.chargerUsesLeft} left)`;
+    pcBtn.addEventListener("click", ()=>{
+      state.battery = 100;
+      state.chargerUsesLeft -= 1;
+      renderHUD();
+      actionLog.textContent = state.chargerUsesLeft>0
+        ? `Recharged with the portable charger. ${state.chargerUsesLeft} use(s) left.`
+        : `Recharged with the portable charger. It's now empty — needs an outlet to refill.`;
+      buildActionButtons(loc);
+    });
+    actionButtons.appendChild(pcBtn);
+  }
+
+  // Buy portable charger at mall
+  if(loc.sellsCharger && !state.hasPortableCharger){
+    const buyBtn = document.createElement("button");
+    buyBtn.className = "btn gold";
+    buyBtn.disabled = state.money < CHARGER_PRICE;
+    buyBtn.innerHTML = `🛒 Buy portable charger — $${CHARGER_PRICE}`;
+    buyBtn.addEventListener("click", ()=>{
+      state.money -= CHARGER_PRICE;
+      state.hasPortableCharger = true;
+      state.chargerUsesLeft = CHARGER_USES_MAX;
+      renderHUD();
+      actionLog.textContent = "Bought a portable charger. 5 uses before it needs an outlet.";
+      buildActionButtons(loc);
+    });
+    actionButtons.appendChild(buyBtn);
+  }
+}
+
+// ---------- BATTERY DRAIN LOOP ----------
+function drainBattery(gameMinPassed){
+  if(state.battery <= 0){ state.battery = 0; return; }
+  const rate = BATTERY_DRAIN_PER_GAME_MIN * (state.recordingMode !== null ? RECORD_DRAIN_MULTIPLIER : 1);
+  state.battery = Math.max(0, state.battery - rate*gameMinPassed);
+  if(state.battery<=0 && state.recordingMode !== null){
+    state.recordingMode = null; // recording forced off when battery dies
+  }
+}
+
+// ---------- MAIN CLOCK LOOP (normal, non-transit time) ----------
+// 1 real hour = 24 game hours -> a 16-hour waking day takes about 40 real minutes to play.
+setInterval(()=>{
+  if(!state.inTransit){
+    state.gameMin += 1;
+    drainBattery(1);
+    updateRainState();
+    renderHUD();
+    if(actionPanel.classList.contains("active")){
+      // refresh buttons in case battery/state changed availability
+      const hubLocs = locations[state.currentHub]||[];
+      const loc = hubLocs.find(l=>l.id===state.currentLocation);
+      if(loc) buildActionButtons(loc);
+    }
+  }
+}, REAL_SEC_PER_GAME_MIN * 1000);
+
+document.getElementById("game-over-restart-btn").addEventListener("click", ()=>{
+  location.reload();
+});
+
+// ---------- INIT ----------
+hideLeash();
+renderHUD();
+renderTransitMap();
+enterNeighbourhood(state.currentHub);
+showToast("Prototype build — all sprites are placeholders.");
+</script>
+
+<!--
+SPRITE_MAP (reference for steve_sprite_sheet_template.png, 8x4 grid, 128px cells):
+Row0: steve_idle_down, steve_idle_up, steve_idle_left, steve_idle_right,
+      steve_walk_down_1, steve_walk_down_2, steve_walk_up_1, steve_walk_up_2
+Row1: steve_walk_left_1, steve_walk_left_2, steve_walk_right_1, steve_walk_right_2,
+      reserved x4
+Row2: icon_house, icon_museum, icon_mall, icon_cafe, icon_landmark, icon_outlet,
+      icon_charger, icon_record
+Row3: icon_battery_full, icon_battery_low, icon_battery_dead, icon_money, reserved x4
+
+When real sprites are dropped in, swap the CSS placeholder blocks (.loc-icon, #steve-sprite)
+and the emoji glyphs in ICON_GLYPH for <img>/background-image references into fixed
+128x128 cell coordinates from this sheet.
+-->
+</body>
+</html>
